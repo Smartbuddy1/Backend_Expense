@@ -43,8 +43,10 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   res.status(201).json({ user: toSafeUser(user) });
 });
 
-router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
-  const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+// Operations also needs this to pick a supervisor when creating a project.
+router.get('/', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  const where = req.query.role ? { role: req.query.role } : {};
+  const users = await prisma.user.findMany({ where, orderBy: { createdAt: 'desc' } });
   res.json({ users: users.map(toSafeUser) });
 });
 

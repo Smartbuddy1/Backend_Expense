@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { z } = require('zod');
 
 const prisma = require('../db');
@@ -9,11 +9,14 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// 5 attempts per 15 minutes per IP — see docs/06-security.md §1
+// 8 attempts per 15 minutes per mobile number being logged into (not per IP) —
+// several site supervisors on the same office/site WiFi must not be able to
+// lock each other out. See docs/06-security.md §1.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 5,
-  message: { error: 'Too many login attempts. Try again later.' },
+  limit: 8,
+  keyGenerator: (req) => req.body?.mobile || ipKeyGenerator(req.ip),
+  message: { error: 'Too many login attempts for this account. Try again later.' },
 });
 
 const loginSchema = z.object({
