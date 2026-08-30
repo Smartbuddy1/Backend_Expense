@@ -8,6 +8,11 @@ const organizationRoutes = require('./routes/organizations');
 const projectRoutes = require('./routes/projects');
 const expenseRoutes = require('./routes/expenses');
 const advanceRoutes = require('./routes/advances');
+const teamMemberRoutes = require('./routes/teamMembers');
+const operationalHeadRoutes = require('./routes/operationalHeads');
+const paymentsLedgerRoutes = require('./routes/paymentsLedger');
+const settlementRoutes = require('./routes/settlements');
+const siteLogRoutes = require('./routes/siteLogs');
 
 const app = express();
 
@@ -25,6 +30,11 @@ app.use('/organizations', organizationRoutes);
 app.use('/projects', projectRoutes);
 app.use('/expenses', expenseRoutes);
 app.use('/advances', advanceRoutes);
+app.use('/team-members', teamMemberRoutes);
+app.use('/operational-heads', operationalHeadRoutes);
+app.use('/payments-ledger', paymentsLedgerRoutes);
+app.use('/settlements', settlementRoutes);
+app.use('/site-logs', siteLogRoutes);
 
 // Centralized error handler — catches anything a route didn't handle itself
 // (bad multipart data, unexpected DB errors) instead of leaking a stack trace.

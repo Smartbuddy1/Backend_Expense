@@ -121,4 +121,72 @@ router.get('/:id/wallet', requireAuth, async (req, res) => {
   res.json({ totalAdvance, totalSpent, balance: totalAdvance - totalSpent });
 });
 
+// --- Team assignment ---
+router.post('/:id/team', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  const { teamMemberId } = req.body;
+  if (!teamMemberId) return res.status(400).json({ error: 'teamMemberId is required' });
+  const assignment = await prisma.projectTeamAssignment.upsert({
+    where: { projectId_teamMemberId: { projectId: req.params.id, teamMemberId } },
+    update: {},
+    create: { projectId: req.params.id, teamMemberId },
+  });
+  res.status(201).json({ assignment });
+});
+
+router.delete('/:id/team/:teamMemberId', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  await prisma.projectTeamAssignment.delete({
+    where: { projectId_teamMemberId: { projectId: req.params.id, teamMemberId: req.params.teamMemberId } },
+  }).catch(() => {});
+  res.status(204).end();
+});
+
+// --- Milestones ---
+router.post('/:id/milestones', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  const { title, targetDate } = req.body;
+  if (!title) return res.status(400).json({ error: 'title is required' });
+  const milestone = await prisma.projectMilestone.create({
+    data: { projectId: req.params.id, title, targetDate: targetDate ? new Date(targetDate) : undefined },
+  });
+  res.status(201).json({ milestone });
+});
+
+router.patch('/:id/milestones/:milestoneId', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  const { status } = req.body;
+  const milestone = await prisma.projectMilestone.update({
+    where: { id: req.params.milestoneId },
+    data: { status },
+  });
+  res.json({ milestone });
+});
+
+// --- Fund release (Budget Management) ---
+router.patch('/:id/release-fund', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {
+  const amount = Number(req.body.amount);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'A positive amount is required' });
+
+  const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const updated = await prisma.project.update({
+    where: { id: req.params.id },
+    data: { fundsReleased: { increment: amount } },
+  });
+
+  await prisma.paymentLedgerEntry.create({
+    data: {
+      type: 'Project Fund Release',
+      projectId: project.id,
+      paidTo: `${project.name} Site Account`,
+      amount,
+      paymentMode: req.body.paymentMode || null,
+      refNumber: req.body.refNumber || null,
+      category: 'Project Fund Allocation',
+      notes: req.body.notes || null,
+      companyBankAccountId: req.body.companyBankAccountId || null,
+    },
+  });
+
+  res.json({ project: updated });
+});
+
 module.exports = router;

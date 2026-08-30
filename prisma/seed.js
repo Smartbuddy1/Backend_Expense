@@ -64,6 +64,17 @@ async function main() {
     },
   });
 
+  const BANK_ACCOUNTS = [
+    { name: 'ICICI Bank — Main', accountType: 'bank', balance: 5000000 },
+    { name: 'HDFC Bank — Operations', accountType: 'bank', balance: 3000000 },
+    { name: 'SBI — Reserve', accountType: 'bank', balance: 2000000 },
+    { name: 'Petty Cash', accountType: 'petty_cash', balance: 50000 },
+  ];
+  for (const acc of BANK_ACCOUNTS) {
+    const existing = await prisma.companyBankAccount.findFirst({ where: { name: acc.name } });
+    if (!existing) await prisma.companyBankAccount.create({ data: acc });
+  }
+
   console.log('Seeded test users (all use password "test1234"):');
   TEST_USERS.forEach((u) => console.log(`  ${u.role.padEnd(16)} mobile: ${u.mobile}`));
   console.log(`Seeded ${EXPENSE_CATEGORIES.length} expense categories.`);

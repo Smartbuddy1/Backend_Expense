@@ -39,8 +39,46 @@ model User {
   paidExpenses       Expense[] @relation("ExpensePaidBy")
   requestedAdvances  Advance[] @relation("AdvanceRequestedBy")
   approvedAdvances   Advance[] @relation("AdvanceApprovedBy")
+  operationalHead    OperationalHead?
+  siteLogs           SiteLog[]
+  settlements        Settlement[]      @relation("SettlementSupervisor")
 
   @@map("users")
+}
+
+model OperationalHead {
+  id                       String    @id @default(uuid()) @db.Char(36)
+  userId                   String?   @unique @map("user_id") @db.Char(36)
+  user                     User?     @relation(fields: [userId], references: [id])
+  name                     String
+  department               String?
+  phone                    String?
+  email                    String?
+  location                 String?
+  experience               String?
+  employeeId               String?   @map("employee_id")
+  specialization           String?
+  responsibilities         Json?
+  joinedDate               DateTime? @map("joined_date")
+  totalBudgetAuthorisation Decimal   @default(0) @map("total_budget_authorisation") @db.Decimal(14, 2)
+  status                   UserStatus @default(active)
+  createdAt                DateTime  @default(now()) @map("created_at")
+
+  @@map("operational_heads")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid()) @db.Char(36)
+  name      String
+  role      String?
+  phone     String?
+  skills    Json?
+  status    UserStatus @default(active)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  assignments ProjectTeamAssignment[]
+
+  @@map("team_members")
 }
 
 model Organization {
@@ -63,28 +101,146 @@ enum ProjectStatus {
   completed
 }
 
+enum ProjectHealth {
+  on_track
+  at_risk
+  delayed
+}
+
 model Project {
   id             String        @id @default(uuid()) @db.Char(36)
   code           String        @unique
   name           String
   site           String?
   location       String?
+  category       String?
+  toiletsCount   Int?          @map("toilets_count")
   organizationId String?       @map("organization_id") @db.Char(36)
   organization   Organization? @relation(fields: [organizationId], references: [id])
   supervisorId   String?       @map("supervisor_id") @db.Char(36)
   supervisor     User?         @relation("ProjectSupervisor", fields: [supervisorId], references: [id])
   budget         Decimal       @default(0) @db.Decimal(12, 2)
+  fundsReleased  Decimal       @default(0) @map("funds_released") @db.Decimal(12, 2)
   status         ProjectStatus @default(planned)
+  health         ProjectHealth @default(on_track)
+  progress       Int           @default(0)
   startDate      DateTime?     @map("start_date")
   endDate        DateTime?     @map("end_date")
   description    String?       @db.Text
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  expenses  Expense[]
-  advances  Advance[]
+  expenses        Expense[]
+  advances        Advance[]
+  milestones      ProjectMilestone[]
+  teamAssignments ProjectTeamAssignment[]
+  siteLogs        SiteLog[]
+  settlements     Settlement[]
+  paymentLedgerEntries PaymentLedgerEntry[]
 
   @@map("projects")
+}
+
+model ProjectMilestone {
+  id         String    @id @default(uuid()) @db.Char(36)
+  projectId  String    @map("project_id") @db.Char(36)
+  project    Project   @relation(fields: [projectId], references: [id])
+  title      String
+  status     String    @default("pending")
+  targetDate DateTime? @map("target_date")
+
+  @@index([projectId])
+  @@map("project_milestones")
+}
+
+model ProjectTeamAssignment {
+  projectId    String     @map("project_id") @db.Char(36)
+  project      Project    @relation(fields: [projectId], references: [id])
+  teamMemberId String     @map("team_member_id") @db.Char(36)
+  teamMember   TeamMember @relation(fields: [teamMemberId], references: [id])
+  assignedAt   DateTime   @default(now()) @map("assigned_at")
+
+  @@id([projectId, teamMemberId])
+  @@map("project_team_assignments")
+}
+
+model SiteLog {
+  id           String   @id @default(uuid()) @db.Char(36)
+  projectId    String   @map("project_id") @db.Char(36)
+  project      Project  @relation(fields: [projectId], references: [id])
+  supervisorId String   @map("supervisor_id") @db.Char(36)
+  supervisor   User     @relation(fields: [supervisorId], references: [id])
+  date         DateTime @default(now())
+  title        String
+  workSummary  String?  @map("work_summary") @db.Text
+  laborCount   Int?     @map("labor_count")
+  issues       String?  @db.Text
+  status       String   @default("submitted")
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("site_logs")
+}
+
+model CompanyBankAccount {
+  id          String  @id @default(uuid()) @db.Char(36)
+  name        String
+  accountType String  @default("bank") @map("account_type")
+  balance     Decimal @default(0) @db.Decimal(14, 2)
+
+  paymentLedgerEntries PaymentLedgerEntry[]
+
+  @@map("company_bank_accounts")
+}
+
+model PaymentLedgerEntry {
+  id                   String              @id @default(uuid()) @db.Char(36)
+  type                 String
+  projectId            String?             @map("project_id") @db.Char(36)
+  project              Project?            @relation(fields: [projectId], references: [id])
+  paidTo               String?             @map("paid_to")
+  amount               Decimal             @db.Decimal(12, 2)
+  paymentMode          String?             @map("payment_mode")
+  refNumber            String?             @map("ref_number")
+  category             String?
+  notes                String?             @db.Text
+  companyBankAccountId String?             @map("company_bank_account_id") @db.Char(36)
+  companyBankAccount   CompanyBankAccount? @relation(fields: [companyBankAccountId], references: [id])
+  createdAt            DateTime            @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("payments_ledger")
+}
+
+enum SettlementType {
+  refund_due
+  additional_payable
+}
+
+enum SettlementStatus {
+  pending
+  settled
+}
+
+model Settlement {
+  id                     String            @id @default(uuid()) @db.Char(36)
+  projectId              String            @map("project_id") @db.Char(36)
+  project                Project           @relation(fields: [projectId], references: [id])
+  supervisorId           String            @map("supervisor_id") @db.Char(36)
+  supervisor             User              @relation("SettlementSupervisor", fields: [supervisorId], references: [id])
+  completedDate          DateTime?         @map("completed_date")
+  totalAdvanceGiven      Decimal           @default(0) @map("total_advance_given") @db.Decimal(12, 2)
+  totalApprovedExpenses  Decimal           @default(0) @map("total_approved_expenses") @db.Decimal(12, 2)
+  difference             Decimal           @default(0) @db.Decimal(12, 2)
+  settlementType         SettlementType    @map("settlement_type")
+  status                 SettlementStatus  @default(pending)
+  supervisorRemark       String?           @map("supervisor_remark") @db.Text
+  accountsRemark         String?           @map("accounts_remark") @db.Text
+  createdAt              DateTime          @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("settlements")
 }
 
 model ExpenseCategory {
