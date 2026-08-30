@@ -33,5 +33,130 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
+  supervisedProjects Project[] @relation("ProjectSupervisor")
+  submittedExpenses  Expense[] @relation("ExpenseSubmittedBy")
+  approvedExpenses   Expense[] @relation("ExpenseApprovedBy")
+  paidExpenses       Expense[] @relation("ExpensePaidBy")
+  requestedAdvances  Advance[] @relation("AdvanceRequestedBy")
+  approvedAdvances   Advance[] @relation("AdvanceApprovedBy")
+
   @@map("users")
+}
+
+model Organization {
+  id            String   @id @default(uuid()) @db.Char(36)
+  name          String
+  contactPerson String?  @map("contact_person")
+  phone         String?
+  email         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  projects Project[]
+
+  @@map("organizations")
+}
+
+enum ProjectStatus {
+  planned
+  active
+  on_hold
+  completed
+}
+
+model Project {
+  id             String        @id @default(uuid()) @db.Char(36)
+  code           String        @unique
+  name           String
+  site           String?
+  location       String?
+  organizationId String?       @map("organization_id") @db.Char(36)
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  supervisorId   String?       @map("supervisor_id") @db.Char(36)
+  supervisor     User?         @relation("ProjectSupervisor", fields: [supervisorId], references: [id])
+  budget         Decimal       @default(0) @db.Decimal(12, 2)
+  status         ProjectStatus @default(planned)
+  startDate      DateTime?     @map("start_date")
+  endDate        DateTime?     @map("end_date")
+  description    String?       @db.Text
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  expenses  Expense[]
+  advances  Advance[]
+
+  @@map("projects")
+}
+
+model ExpenseCategory {
+  id   String @id @default(uuid()) @db.Char(36)
+  name String @unique
+
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+enum ExpenseStatus {
+  submitted
+  ops_approved
+  ops_rejected
+  accounts_paid
+}
+
+model Expense {
+  id             String          @id @default(uuid()) @db.Char(36)
+  projectId      String          @map("project_id") @db.Char(36)
+  project        Project         @relation(fields: [projectId], references: [id])
+  submittedById  String          @map("submitted_by") @db.Char(36)
+  submittedBy    User            @relation("ExpenseSubmittedBy", fields: [submittedById], references: [id])
+  categoryId     String?         @map("category_id") @db.Char(36)
+  category       ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  description    String          @db.Text
+  vendorName     String?         @map("vendor_name")
+  amount         Decimal         @db.Decimal(12, 2)
+  receiptUrl     String?         @map("receipt_url")
+  status         ExpenseStatus   @default(submitted)
+  opsApprovedById String?        @map("ops_approved_by") @db.Char(36)
+  opsApprovedBy   User?          @relation("ExpenseApprovedBy", fields: [opsApprovedById], references: [id])
+  opsApprovedAt   DateTime?      @map("ops_approved_at")
+  opsRemarks      String?        @map("ops_remarks") @db.Text
+  paidById        String?        @map("paid_by") @db.Char(36)
+  paidBy          User?          @relation("ExpensePaidBy", fields: [paidById], references: [id])
+  paidAt          DateTime?      @map("paid_at")
+  paymentRef      String?        @map("payment_ref")
+  submittedVia    String         @default("app") @map("submitted_via")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([projectId])
+  @@index([submittedById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("expenses")
+}
+
+enum AdvanceStatus {
+  requested
+  approved
+  rejected
+  disbursed
+}
+
+model Advance {
+  id             String        @id @default(uuid()) @db.Char(36)
+  projectId      String        @map("project_id") @db.Char(36)
+  project        Project       @relation(fields: [projectId], references: [id])
+  requestedById  String        @map("requested_by") @db.Char(36)
+  requestedBy    User          @relation("AdvanceRequestedBy", fields: [requestedById], references: [id])
+  amount         Decimal       @db.Decimal(12, 2)
+  purpose        String?       @db.Text
+  status         AdvanceStatus @default(requested)
+  approvedById   String?       @map("approved_by") @db.Char(36)
+  approvedBy     User?         @relation("AdvanceApprovedBy", fields: [approvedById], references: [id])
+  approvedAt     DateTime?     @map("approved_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@index([requestedById])
+  @@map("advances")
 }
