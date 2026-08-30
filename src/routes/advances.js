@@ -23,6 +23,33 @@ router.post('/', requireAuth, requireRole('site_supervisor'), async (req, res) =
   res.status(201).json({ advance });
 });
 
+const transferSchema = z.object({
+  projectId: z.string().min(1),
+  supervisorId: z.string().min(1),
+  amount: z.coerce.number().positive(),
+  purpose: z.string().optional(),
+});
+
+// Admin/Operations directly hand a supervisor cash on the spot (skips the
+// request step since whoever is making the call is already authorizing it) —
+// created straight into "approved", still needs Accounts to actually disburse it.
+router.post('/transfer', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  const parsed = transferSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+  }
+  const advance = await prisma.advance.create({
+    data: {
+      ...parsed.data,
+      requestedById: parsed.data.supervisorId,
+      status: 'approved',
+      approvedById: req.user.id,
+      approvedAt: new Date(),
+    },
+  });
+  res.status(201).json({ advance });
+});
+
 router.get('/', requireAuth, async (req, res) => {
   const where = {
     ...(req.user.role === 'site_supervisor' ? { requestedById: req.user.id } : {}),

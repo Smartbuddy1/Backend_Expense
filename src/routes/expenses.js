@@ -25,8 +25,11 @@ const createExpenseSchema = z.object({
   amount: z.coerce.number().positive(),
 });
 
-// The core money-moving action: a site supervisor submits an expense with a bill photo.
-router.post('/', requireAuth, requireRole('site_supervisor'), upload.single('receipt'), async (req, res) => {
+// The core money-moving action: a site supervisor submits an expense with a bill
+// photo. Admin/Operations can also log one on a supervisor's behalf (e.g. a
+// phoned-in field expense) — it's then recorded against that project's assigned
+// supervisor, not the admin/ops user themselves.
+router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), upload.single('receipt'), async (req, res) => {
   const parsed = createExpenseSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
@@ -35,8 +38,17 @@ router.post('/', requireAuth, requireRole('site_supervisor'), upload.single('rec
 
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (project.supervisorId !== req.user.id) {
-    return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+
+  let submittedById = req.user.id;
+  if (req.user.role === 'site_supervisor') {
+    if (project.supervisorId !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+    }
+  } else {
+    if (!project.supervisorId) {
+      return res.status(409).json({ error: 'This project has no supervisor assigned yet to log the expense against' });
+    }
+    submittedById = project.supervisorId;
   }
 
   let receiptUrl = null;
@@ -47,12 +59,13 @@ router.post('/', requireAuth, requireRole('site_supervisor'), upload.single('rec
   const expense = await prisma.expense.create({
     data: {
       projectId,
-      submittedById: req.user.id,
+      submittedById,
       categoryId: categoryId || undefined,
       description,
       vendorName,
       amount,
       receiptUrl,
+      submittedVia: req.user.role === 'site_supervisor' ? 'app' : 'logged_by_ops',
     },
   });
   res.status(201).json({ expense });
