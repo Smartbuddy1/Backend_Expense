@@ -114,11 +114,15 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
   res.json({ expense: updated });
 });
 
-router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin'), async (req, res) => {
-  const { remarks } = req.body;
+// Operations rejects a freshly submitted claim; Accounts sends an already
+// ops-approved one back for correction (e.g. a GST/bill mismatch found at
+// verification) — both land in the same ops_rejected state.
+router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'accountant'), async (req, res) => {
+  const { remarks } = req.body || {};
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
-  if (expense.status !== 'submitted') {
+  const allowedFrom = req.user.role === 'accountant' ? ['ops_approved'] : ['submitted'];
+  if (!allowedFrom.includes(expense.status)) {
     return res.status(409).json({ error: `Cannot reject an expense with status "${expense.status}"` });
   }
 
@@ -135,7 +139,7 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin'), asy
 });
 
 router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async (req, res) => {
-  const { paymentRef } = req.body;
+  const { paymentRef } = req.body || {};
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   if (expense.status !== 'ops_approved') {

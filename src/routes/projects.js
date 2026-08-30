@@ -139,7 +139,7 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
 
 // --- Team assignment ---
 router.post('/:id/team', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
-  const { teamMemberId } = req.body;
+  const { teamMemberId } = req.body || {};
   if (!teamMemberId) return res.status(400).json({ error: 'teamMemberId is required' });
   const assignment = await prisma.projectTeamAssignment.upsert({
     where: { projectId_teamMemberId: { projectId: req.params.id, teamMemberId } },
@@ -158,7 +158,7 @@ router.delete('/:id/team/:teamMemberId', requireAuth, requireRole('admin', 'oper
 
 // --- Milestones ---
 router.post('/:id/milestones', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
-  const { title, targetDate } = req.body;
+  const { title, targetDate } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title is required' });
   const milestone = await prisma.projectMilestone.create({
     data: { projectId: req.params.id, title, targetDate: targetDate ? new Date(targetDate) : undefined },
@@ -167,7 +167,7 @@ router.post('/:id/milestones', requireAuth, requireRole('admin', 'operations'), 
 });
 
 router.patch('/:id/milestones/:milestoneId', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
-  const { status } = req.body;
+  const { status } = req.body || {};
   const milestone = await prisma.projectMilestone.update({
     where: { id: req.params.milestoneId },
     data: { status },
@@ -177,7 +177,8 @@ router.patch('/:id/milestones/:milestoneId', requireAuth, requireRole('admin', '
 
 // --- Fund release (Budget Management) ---
 router.patch('/:id/release-fund', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {
-  const amount = Number(req.body.amount);
+  const body = req.body || {};
+  const amount = Number(body.amount);
   if (!amount || amount <= 0) return res.status(400).json({ error: 'A positive amount is required' });
 
   const project = await prisma.project.findUnique({ where: { id: req.params.id } });
@@ -194,11 +195,11 @@ router.patch('/:id/release-fund', requireAuth, requireRole('admin', 'accountant'
       projectId: project.id,
       paidTo: `${project.name} Site Account`,
       amount,
-      paymentMode: req.body.paymentMode || null,
-      refNumber: req.body.refNumber || null,
+      paymentMode: body.paymentMode || null,
+      refNumber: body.refNumber || null,
       category: 'Project Fund Allocation',
-      notes: req.body.notes || null,
-      companyBankAccountId: req.body.companyBankAccountId || null,
+      notes: body.notes || null,
+      companyBankAccountId: body.companyBankAccountId || null,
     },
   });
 

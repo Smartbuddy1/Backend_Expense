@@ -52,7 +52,7 @@ router.get('/', requireAuth, requireRole('admin', 'operations', 'accountant'), a
 
 // Closes the settlement out and logs the resulting payment/refund in the ledger.
 router.patch('/:id/settle', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {
-  const { paymentMode, refNumber, accountsRemark } = req.body;
+  const { paymentMode, refNumber, accountsRemark } = req.body || {};
   const settlement = await prisma.settlement.findUnique({
     where: { id: req.params.id },
     include: { project: true, supervisor: true },
