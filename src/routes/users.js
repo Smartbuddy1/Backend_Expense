@@ -20,15 +20,19 @@ function toSafeUser(user) {
   return safe;
 }
 
-// Admin-only: this is how every non-admin user account gets created — it replaces the
-// password fields that Admin's Create*Modal components already collect client-side but
-// currently send nowhere (see docs/03-frontend-status.md).
-router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
+// Admin can create any role. Operations can only create site_supervisor accounts
+// (they manage field staff day to day, but shouldn't be able to create other
+// admin/operations/accountant logins).
+router.post('/', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
   const { name, mobile, password, role, email } = parsed.data;
+
+  if (req.user.role === 'operations' && role !== 'site_supervisor') {
+    return res.status(403).json({ error: 'Operations can only create Site Supervisor accounts' });
+  }
 
   const existing = await prisma.user.findUnique({ where: { mobile } });
   if (existing) {
