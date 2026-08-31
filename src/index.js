@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -37,6 +38,14 @@ app.use(rateLimit({
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'ASEMS backend is running' });
 });
+
+// Locally-stored receipt photos (the S3 fallback in utils/s3.js) — helmet's
+// default same-origin resource policy would otherwise block the frontend
+// (a different origin) from loading these as <img> sources.
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(__dirname, '..', 'uploads')));
 
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);

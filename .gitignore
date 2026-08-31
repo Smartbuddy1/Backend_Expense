@@ -2,3 +2,6 @@ node_modules
 
 # Keep environment variables out of version control
 .env
+
+# Local-disk fallback for receipt uploads when S3 isn't configured (see utils/s3.js)
+uploads/

@@ -54,7 +54,8 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
 
   let receiptUrl = null;
   if (req.file) {
-    receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'expenses');
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'expenses', baseUrl);
   }
 
   const expense = await prisma.expense.create({
