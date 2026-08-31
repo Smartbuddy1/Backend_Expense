@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -16,8 +18,20 @@ const siteLogRoutes = require('./routes/siteLogs');
 
 const app = express();
 
+// Standard security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
+app.use(helmet());
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// Backstop against abuse/scraping on top of the tighter per-route limiter on
+// login — generous enough that a dashboard's normal burst of parallel GET
+// calls on page load never trips it.
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 
 // Simple check to confirm the server is alive — visit http://localhost:5000/health in a browser
 app.get('/health', (req, res) => {
