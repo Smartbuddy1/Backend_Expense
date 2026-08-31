@@ -21,6 +21,8 @@ const createProjectSchema = z.object({
 
 const updateProjectSchema = createProjectSchema.partial().extend({
   status: z.enum(['planned', 'active', 'on_hold', 'completed']).optional(),
+  health: z.enum(['on_track', 'at_risk', 'delayed']).optional(),
+  progress: z.coerce.number().min(0).max(100).optional(),
 });
 
 // Admin + Operations manage projects; Accounts and Supervisors only read.

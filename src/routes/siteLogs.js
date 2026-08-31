@@ -14,11 +14,29 @@ const schema = z.object({
   issues: z.string().optional(),
 });
 
-router.post('/', requireAuth, requireRole('site_supervisor'), async (req, res) => {
+// A site supervisor logs their own day; Admin/Operations can also log a site
+// update on a supervisor's behalf (e.g. during a progress review call) — same
+// as expenses/advances, recorded against that project's assigned supervisor.
+router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+
+  let supervisorId = req.user.id;
+  const project = await prisma.project.findUnique({ where: { id: parsed.data.projectId } });
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (req.user.role === 'site_supervisor') {
+    if (project.supervisorId !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+    }
+  } else {
+    if (!project.supervisorId) {
+      return res.status(409).json({ error: 'This project has no supervisor assigned yet to log against' });
+    }
+    supervisorId = project.supervisorId;
+  }
+
   const log = await prisma.siteLog.create({
-    data: { ...parsed.data, supervisorId: req.user.id },
+    data: { ...parsed.data, supervisorId },
   });
   res.status(201).json({ siteLog: log });
 });
