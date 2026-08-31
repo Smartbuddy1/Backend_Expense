@@ -15,9 +15,12 @@ const createSchema = z.object({
   supervisorRemark: z.string().optional(),
 });
 
-// Accounts initiates a settlement once a project wraps up — the running
-// advance-vs-spend numbers can be pulled from GET /projects/:id/wallet first.
-router.post('/', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {
+// Accounts (or Operations, flagging a supervisor's float as ready to close out)
+// initiates a settlement once a project wraps up — the running advance-vs-spend
+// numbers can be pulled from GET /projects/:id/wallet first. This only proposes
+// the settlement; it stays "pending" until Accounts actually closes it via
+// PATCH /:id/settle, so it doesn't move any money on its own.
+router.post('/', requireAuth, requireRole('admin', 'accountant', 'operations'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   const { projectId, supervisorId, totalAdvanceGiven, totalApprovedExpenses, supervisorRemark } = parsed.data;

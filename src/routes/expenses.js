@@ -5,6 +5,7 @@ const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { uploadToS3 } = require('../utils/s3');
+const { recordPaymentEntry } = require('./paymentsLedger');
 
 const router = express.Router();
 
@@ -139,8 +140,11 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
 });
 
 router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async (req, res) => {
-  const { paymentRef } = req.body || {};
-  const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
+  const { paymentRef, paymentMode } = req.body || {};
+  const expense = await prisma.expense.findUnique({
+    where: { id: req.params.id },
+    include: { project: true, submittedBy: true },
+  });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   if (expense.status !== 'ops_approved') {
     return res.status(409).json({ error: 'Only an Operations-approved expense can be marked paid' });
@@ -150,6 +154,18 @@ router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async 
     where: { id: req.params.id },
     data: { status: 'accounts_paid', paidById: req.user.id, paidAt: new Date(), paymentRef: paymentRef || null },
   });
+
+  await recordPaymentEntry({
+    type: 'Expense Reimbursement',
+    projectId: expense.projectId,
+    paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
+    amount: Number(expense.amount),
+    paymentMode: paymentMode || null,
+    refNumber: paymentRef || null,
+    category: 'Expense Reimbursement',
+    notes: `Verified claim ${expense.id} - ${expense.description}`,
+  });
+
   res.json({ expense: updated });
 });
 

@@ -3,6 +3,7 @@ const { z } = require('zod');
 
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { recordPaymentEntry } = require('./paymentsLedger');
 
 const router = express.Router();
 
@@ -12,13 +13,35 @@ const requestSchema = z.object({
   purpose: z.string().optional(),
 });
 
-router.post('/', requireAuth, requireRole('site_supervisor'), async (req, res) => {
+// A site supervisor requests their own advance; Admin/Operations can also log a
+// requisition on a supervisor's behalf (e.g. a phoned-in urgent cash need) — same
+// as how expenses can be logged for a supervisor — recorded against that
+// project's assigned supervisor, still landing in "requested" pending approval.
+router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
   const parsed = requestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
+  const { projectId } = parsed.data;
+
+  let requestedById = req.user.id;
+  if (req.user.role === 'site_supervisor') {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.supervisorId !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+    }
+  } else {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project.supervisorId) {
+      return res.status(409).json({ error: 'This project has no supervisor assigned yet to log the requisition against' });
+    }
+    requestedById = project.supervisorId;
+  }
+
   const advance = await prisma.advance.create({
-    data: { ...parsed.data, requestedById: req.user.id },
+    data: { ...parsed.data, requestedById },
   });
   res.status(201).json({ advance });
 });
@@ -40,7 +63,9 @@ router.post('/transfer', requireAuth, requireRole('admin', 'operations'), async 
   }
   const advance = await prisma.advance.create({
     data: {
-      ...parsed.data,
+      projectId: parsed.data.projectId,
+      amount: parsed.data.amount,
+      purpose: parsed.data.purpose,
       requestedById: parsed.data.supervisorId,
       status: 'approved',
       approvedById: req.user.id,
@@ -94,7 +119,11 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin'), asy
 });
 
 router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), async (req, res) => {
-  const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
+  const body = req.body || {};
+  const advance = await prisma.advance.findUnique({
+    where: { id: req.params.id },
+    include: { project: true, requestedBy: true },
+  });
   if (!advance) return res.status(404).json({ error: 'Advance not found' });
   if (advance.status !== 'approved') {
     return res.status(409).json({ error: 'Only an Operations-approved advance can be disbursed' });
@@ -103,6 +132,19 @@ router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), a
     where: { id: req.params.id },
     data: { status: 'disbursed' },
   });
+
+  await recordPaymentEntry({
+    type: 'Site Advance Disbursal',
+    projectId: advance.projectId,
+    paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
+    amount: Number(advance.amount),
+    paymentMode: body.paymentMode || null,
+    refNumber: body.refNumber || null,
+    category: 'Site Advance',
+    notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
+    companyBankAccountId: body.companyBankAccountId || null,
+  });
+
   res.json({ advance: updated });
 });
 
