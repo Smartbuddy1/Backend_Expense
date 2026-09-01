@@ -177,6 +177,13 @@ router.patch('/:id/milestones/:milestoneId', requireAuth, requireRole('admin', '
   res.json({ milestone });
 });
 
+router.delete('/:id/milestones/:milestoneId', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  await prisma.projectMilestone.delete({
+    where: { id: req.params.milestoneId },
+  }).catch(() => {});
+  res.status(204).end();
+});
+
 // --- Fund release (Budget Management) ---
 router.patch('/:id/release-fund', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {
   const body = req.body || {};

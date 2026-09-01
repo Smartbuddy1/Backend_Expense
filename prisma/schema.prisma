@@ -41,6 +41,7 @@ model User {
   approvedAdvances   Advance[] @relation("AdvanceApprovedBy")
   operationalHead    OperationalHead?
   siteLogs           SiteLog[]
+  sitePhotos         SitePhoto[]
   settlements        Settlement[]      @relation("SettlementSupervisor")
 
   @@map("users")
@@ -135,6 +136,7 @@ model Project {
   milestones      ProjectMilestone[]
   teamAssignments ProjectTeamAssignment[]
   siteLogs        SiteLog[]
+  sitePhotos      SitePhoto[]
   settlements     Settlement[]
   paymentLedgerEntries PaymentLedgerEntry[]
 
@@ -315,4 +317,18 @@ model Advance {
   @@index([projectId])
   @@index([requestedById])
   @@map("advances")
+}
+
+model SitePhoto {
+  id           String   @id @default(uuid()) @db.Char(36)
+  projectId    String   @map("project_id") @db.Char(36)
+  project      Project  @relation(fields: [projectId], references: [id])
+  supervisorId String   @map("supervisor_id") @db.Char(36)
+  supervisor   User     @relation(fields: [supervisorId], references: [id])
+  imageUrl     String   @map("image_url")
+  description  String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("site_photos")
 }

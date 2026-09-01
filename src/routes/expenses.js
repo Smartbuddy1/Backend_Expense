@@ -73,6 +73,14 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
   res.status(201).json({ expense });
 });
 
+// Fetch all expense categories
+router.get('/categories', async (req, res) => {
+  const categories = await prisma.expenseCategory.findMany({
+    orderBy: { name: 'asc' },
+  });
+  res.json({ categories });
+});
+
 // Site supervisors see only their own; everyone else sees all, filterable.
 router.get('/', requireAuth, async (req, res) => {
   const page = Math.max(parseInt(req.query.page) || 1, 1);
