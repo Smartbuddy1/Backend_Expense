@@ -54,7 +54,7 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
 
   let receiptUrl = null;
   if (req.file) {
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'expenses', baseUrl);
   }
 

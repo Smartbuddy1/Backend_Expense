@@ -63,7 +63,7 @@ router.post('/:projectId/photos', requireAuth, requireRole('site_supervisor', 'a
     supervisorId = project.supervisorId;
   }
 
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
   const imageUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'site-photos', baseUrl);
 
   const photo = await prisma.sitePhoto.create({
