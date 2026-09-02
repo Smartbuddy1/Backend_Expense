@@ -1,122 +1,82 @@
 const express = require('express');
-const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
 const multer = require('multer');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { v4: uuidv4 } = require('uuid');
+const { z } = require('zod');
 
-const prisma = new PrismaClient();
-const upload = multer({ storage: multer.memoryStorage() });
+const prisma = require('../db');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const { uploadToS3 } = require('../utils/s3');
 
-// AWS S3 Configuration
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'ap-south-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
-  }
+const router = express.Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png'];
+    cb(null, allowed.includes(file.mimetype));
+  },
 });
 
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'asems-photos';
-
-// Middleware to ensure user is logged in
-const authMiddleware = async (req, res, next) => {
-  try {
-    const userId = req.headers['x-user-id'];
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized: No user ID provided' });
-    }
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid user' });
-    }
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error during auth' });
-  }
-};
+const photoSchema = z.object({
+  description: z.string().optional(),
+});
 
 // GET photos for a specific project
-router.get('/:projectId/photos', authMiddleware, async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    
-    // Check if project exists
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    const photos = await prisma.sitePhoto.findMany({
-      where: { projectId },
-      include: {
-        supervisor: {
-          select: { id: true, name: true }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    res.json({ photos });
-  } catch (error) {
-    console.error('Error fetching site photos:', error);
-    res.status(500).json({ error: 'Failed to fetch photos' });
+router.get('/:projectId/photos', requireAuth, async (req, res) => {
+  const project = await prisma.project.findUnique({ where: { id: req.params.projectId } });
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (req.user.role === 'site_supervisor' && project.supervisorId !== req.user.id) {
+    return res.status(403).json({ error: 'You do not have permission to view this project\'s photos' });
   }
+
+  const photos = await prisma.sitePhoto.findMany({
+    where: { projectId: req.params.projectId },
+    include: { supervisor: { select: { id: true, name: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({ photos });
 });
 
-// POST a new photo
-router.post('/:projectId/photos', authMiddleware, upload.single('photo'), async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    const { description } = req.body;
-
-    if (!req.file) {
-      return res.status(400).json({ error: 'No photo file provided' });
-    }
-
-    // Check if project exists
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    // Ensure user is a supervisor (or admin)
-    if (req.user.role !== 'site_supervisor' && req.user.role !== 'admin' && req.user.role !== 'operations') {
-      return res.status(403).json({ error: 'Forbidden: Only supervisors and admins can upload photos' });
-    }
-
-    const fileExtension = req.file.originalname.split('.').pop();
-    const fileName = `site-photos/${projectId}/${uuidv4()}.${fileExtension}`;
-
-    // Upload to S3
-    const uploadParams = {
-      Bucket: BUCKET_NAME,
-      Key: fileName,
-      Body: req.file.buffer,
-      ContentType: req.file.mimetype,
-    };
-
-    await s3Client.send(new PutObjectCommand(uploadParams));
-
-    const imageUrl = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${fileName}`;
-
-    // Create DB record
-    const photo = await prisma.sitePhoto.create({
-      data: {
-        projectId,
-        supervisorId: req.user.id,
-        imageUrl,
-        description
-      },
-      include: {
-        supervisor: {
-          select: { id: true, name: true }
-        }
-      }
-    });
-
-    res.status(201).json({ message: 'Photo uploaded successfully', photo });
-  } catch (error) {
-    console.error('Error uploading photo:', error);
-    res.status(500).json({ error: 'Failed to upload photo' });
+// A site supervisor uploads a photo for their own project; Admin/Operations
+// can also log one on a supervisor's behalf, same pattern as expenses/advances.
+router.post('/:projectId/photos', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), upload.single('photo'), async (req, res) => {
+  const parsed = photoSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
+  if (!req.file) {
+    return res.status(400).json({ error: 'No photo file provided' });
+  }
+
+  const project = await prisma.project.findUnique({ where: { id: req.params.projectId } });
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  let supervisorId = req.user.id;
+  if (req.user.role === 'site_supervisor') {
+    if (project.supervisorId !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+    }
+  } else {
+    if (!project.supervisorId) {
+      return res.status(409).json({ error: 'This project has no supervisor assigned yet to log the photo against' });
+    }
+    supervisorId = project.supervisorId;
+  }
+
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const imageUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'site-photos', baseUrl);
+
+  const photo = await prisma.sitePhoto.create({
+    data: {
+      projectId: req.params.projectId,
+      supervisorId,
+      imageUrl,
+      description: parsed.data.description,
+    },
+    include: { supervisor: { select: { id: true, name: true } } },
+  });
+
+  res.status(201).json({ photo });
 });
 
 module.exports = router;

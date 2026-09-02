@@ -74,7 +74,7 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
 });
 
 // Fetch all expense categories
-router.get('/categories', async (req, res) => {
+router.get('/categories', requireAuth, async (req, res) => {
   const categories = await prisma.expenseCategory.findMany({
     orderBy: { name: 'asc' },
   });
