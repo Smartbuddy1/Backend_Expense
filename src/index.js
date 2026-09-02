@@ -22,7 +22,8 @@ const app = express();
 
 // Standard security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((o) => o.trim());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '1mb' }));
 
 // Backstop against abuse/scraping on top of the tighter per-route limiter on
