@@ -263,6 +263,7 @@ enum ExpenseStatus {
 
 model Expense {
   id             String          @id @default(uuid()) @db.Char(36)
+  voucherNumber  Int             @unique @default(autoincrement()) @map("voucher_number")
   projectId      String          @map("project_id") @db.Char(36)
   project        Project         @relation(fields: [projectId], references: [id])
   submittedById  String          @map("submitted_by") @db.Char(36)
@@ -301,13 +302,15 @@ enum AdvanceStatus {
 }
 
 model Advance {
-  id             String        @id @default(uuid()) @db.Char(36)
+  id                 String        @id @default(uuid()) @db.Char(36)
+  requisitionNumber  Int           @unique @default(autoincrement()) @map("requisition_number")
   projectId      String        @map("project_id") @db.Char(36)
   project        Project       @relation(fields: [projectId], references: [id])
   requestedById  String        @map("requested_by") @db.Char(36)
   requestedBy    User          @relation("AdvanceRequestedBy", fields: [requestedById], references: [id])
   amount         Decimal       @db.Decimal(12, 2)
   purpose        String?       @db.Text
+  urgency        String?       @default("Regular")
   status         AdvanceStatus @default(requested)
   approvedById   String?       @map("approved_by") @db.Char(36)
   approvedBy     User?         @relation("AdvanceApprovedBy", fields: [approvedById], references: [id])

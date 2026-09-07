@@ -11,6 +11,7 @@ const requestSchema = z.object({
   projectId: z.string().min(1),
   amount: z.coerce.number().positive(),
   purpose: z.string().optional(),
+  urgency: z.string().optional(),
 });
 
 // A site supervisor requests their own advance; Admin/Operations can also log a
@@ -90,6 +91,45 @@ router.get('/', requireAuth, async (req, res) => {
     orderBy: { createdAt: 'desc' },
   });
   res.json({ advances });
+});
+
+router.put('/:id', requireAuth, async (req, res) => {
+  const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
+  if (!advance) return res.status(404).json({ error: 'Advance not found' });
+  if (advance.status !== 'requested') {
+    return res.status(403).json({ error: 'Cannot edit an advance that is already processed' });
+  }
+
+  if (req.user.role === 'site_supervisor' && advance.requestedById !== req.user.id) {
+    return res.status(403).json({ error: 'You can only edit your own requests' });
+  }
+
+  const parsed = requestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+  }
+
+  const updated = await prisma.advance.update({
+    where: { id: req.params.id },
+    data: parsed.data,
+  });
+  res.json({ advance: updated });
+});
+
+router.delete('/:id', requireAuth, async (req, res) => {
+  const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
+  if (!advance) return res.status(404).json({ error: 'Advance not found' });
+  
+  if (advance.status !== 'requested' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Cannot delete an advance that is already processed' });
+  }
+
+  if (req.user.role === 'site_supervisor' && advance.requestedById !== req.user.id) {
+    return res.status(403).json({ error: 'You can only delete your own requests' });
+  }
+
+  await prisma.advance.delete({ where: { id: req.params.id } });
+  res.json({ message: 'Advance deleted successfully' });
 });
 
 router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), async (req, res) => {

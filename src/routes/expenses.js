@@ -110,6 +110,59 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({ expenses, total, page, pageSize });
 });
 
+router.put('/:id', requireAuth, upload.single('receipt'), async (req, res) => {
+  const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
+  if (!expense) return res.status(404).json({ error: 'Expense not found' });
+  if (expense.status !== 'submitted') {
+    return res.status(403).json({ error: 'Cannot edit an expense that is already processed' });
+  }
+
+  if (req.user.role === 'site_supervisor' && expense.submittedById !== req.user.id) {
+    return res.status(403).json({ error: 'You can only edit your own expenses' });
+  }
+
+  const parsed = createExpenseSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+  }
+  const { projectId, categoryId, description, vendorName, amount } = parsed.data;
+
+  let receiptUrl = expense.receiptUrl;
+  if (req.file) {
+    const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'expenses', baseUrl);
+  }
+
+  const updated = await prisma.expense.update({
+    where: { id: req.params.id },
+    data: {
+      projectId,
+      categoryId: categoryId || undefined,
+      description,
+      vendorName,
+      amount,
+      receiptUrl,
+    }
+  });
+  res.json({ expense: updated });
+});
+
+router.delete('/:id', requireAuth, async (req, res) => {
+  const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
+  if (!expense) return res.status(404).json({ error: 'Expense not found' });
+  
+  if (expense.status !== 'submitted' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Cannot delete an expense that is already processed' });
+  }
+
+  if (req.user.role === 'site_supervisor' && expense.submittedById !== req.user.id) {
+    return res.status(403).json({ error: 'You can only delete your own expenses' });
+  }
+
+  await prisma.expense.delete({ where: { id: req.params.id } });
+  res.json({ message: 'Expense deleted successfully' });
+});
+
 router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), async (req, res) => {
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
