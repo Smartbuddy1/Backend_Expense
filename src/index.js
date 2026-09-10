@@ -18,6 +18,7 @@ const settlementRoutes = require('./routes/settlements');
 const siteLogRoutes = require('./routes/siteLogs');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Standard security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
 app.use(helmet());
@@ -28,6 +29,8 @@ app.use(cors({
     if (!origin) return callback(null, true);
     // Always allow any localhost / 127.0.0.1 port (dev convenience)
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
+    // Allow production domains directly to prevent .env misconfiguration issues
+    if (/^https?:\/\/(www\.)?aaryainnovtech\.com$/.test(origin)) return callback(null, true);
     // Allow origins explicitly listed in FRONTEND_URL env var
     if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(new Error(`CORS: origin ${origin} not allowed`));
