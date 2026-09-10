@@ -98,6 +98,26 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
   res.json({ project });
 });
 
+router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
+  try {
+    // Perform a manual cascade delete for all related tables
+    await prisma.sitePhoto.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.siteLog.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.projectTeamAssignment.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.projectMilestone.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.settlement.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.paymentLedgerEntry.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.expense.deleteMany({ where: { projectId: req.params.id } });
+    await prisma.advance.deleteMany({ where: { projectId: req.params.id } });
+    
+    await prisma.project.delete({ where: { id: req.params.id } });
+    res.status(204).end();
+  } catch (err) {
+    console.error('Error deleting project:', err);
+    res.status(500).json({ error: 'Could not delete project. Please check if it has other active dependencies.' });
+  }
+});
+
 // Wallet balance = disbursed advances minus approved/paid expenses, for this project's supervisor.
 router.get('/:id/wallet', requireAuth, async (req, res) => {
   const project = await prisma.project.findUnique({ where: { id: req.params.id } });
