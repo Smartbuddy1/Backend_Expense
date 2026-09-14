@@ -31,6 +31,8 @@ app.use(cors({
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
     // Allow any device on the local network (192.168.x.x) for development
     if (/^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return callback(null, true);
+    // Allow the specific AWS EC2 instance IP
+    if (/^https?:\/\/3\.111\.236\.204(:\d+)?$/.test(origin)) return callback(null, true);
     // Allow production domains directly to prevent .env misconfiguration issues
     if (/^https?:\/\/(www\.)?aaryainnovtech\.com$/.test(origin)) return callback(null, true);
     // Allow origins explicitly listed in FRONTEND_URL env var
