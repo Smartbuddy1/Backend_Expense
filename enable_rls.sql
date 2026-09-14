@@ -1,0 +1,16 @@
+ALTER TABLE "public"."_prisma_migrations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."advances" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."users" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."operational_heads" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."organizations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."projects" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."project_milestones" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."project_team_assignments" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."team_members" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."site_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."payments_ledger" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."company_bank_accounts" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."settlements" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."expenses" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."expense_categories" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."site_photos" ENABLE ROW LEVEL SECURITY;

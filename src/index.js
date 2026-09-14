@@ -29,6 +29,8 @@ app.use(cors({
     if (!origin) return callback(null, true);
     // Always allow any localhost / 127.0.0.1 port (dev convenience)
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
+    // Allow any device on the local network (192.168.x.x) for development
+    if (/^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return callback(null, true);
     // Allow production domains directly to prevent .env misconfiguration issues
     if (/^https?:\/\/(www\.)?aaryainnovtech\.com$/.test(origin)) return callback(null, true);
     // Allow origins explicitly listed in FRONTEND_URL env var
@@ -82,6 +84,8 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const HOST = '0.0.0.0'; // Listen on all network interfaces
+app.listen(PORT, HOST, () => {
   console.log(`ASEMS backend listening on http://localhost:${PORT}`);
+  console.log(`ASEMS backend also accessible on http://192.168.1.4:${PORT}`);
 });
