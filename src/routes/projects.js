@@ -12,7 +12,7 @@ const createProjectSchema = z.object({
   site: z.string().optional(),
   location: z.string().optional(),
   organizationId: z.string().optional(),
-  supervisorId: z.string().optional(),
+  supervisorId: z.string().optional(), // Used to connect via join table
   budget: z.number().nonnegative().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -57,7 +57,12 @@ router.get('/', requireAuth, async (req, res) => {
   const [projects, total] = await Promise.all([
     prisma.project.findMany({
       where,
-      include: { organization: true, supervisor: { select: { id: true, name: true, mobile: true } } },
+      include: {
+        organization: true,
+        supervisor: { select: { id: true, name: true, mobile: true } },
+        teamAssignments: true,
+        milestones: true,
+      },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -71,7 +76,12 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   const project = await prisma.project.findUnique({
     where: { id: req.params.id },
-    include: { organization: true, supervisor: { select: { id: true, name: true, mobile: true } } },
+    include: {
+      organization: true,
+      supervisor: { select: { id: true, name: true, mobile: true } },
+      teamAssignments: true,
+      milestones: true,
+    },
   });
   if (!project) return res.status(404).json({ error: 'Project not found' });
   if (req.user.role === 'site_supervisor' && project.supervisorId !== req.user.id) {
