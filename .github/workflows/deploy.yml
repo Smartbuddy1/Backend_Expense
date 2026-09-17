@@ -17,8 +17,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            echo "Connected to EC2 successfully"
-            whoami
-            pwd
-            node --version
-            npm --version
+            cd /var/www/expense/Backend_Expense
+            git pull origin main
+            npm install
+            npx prisma generate
+            pm2 restart index

@@ -110,16 +110,23 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
 
 router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   try {
-    // Perform a manual cascade delete for all related tables
+    const [expenseCount, advanceCount, siteLogCount] = await Promise.all([
+      prisma.expense.count({ where: { projectId: req.params.id } }),
+      prisma.advance.count({ where: { projectId: req.params.id } }),
+      prisma.siteLog.count({ where: { projectId: req.params.id } }),
+    ]);
+    if (expenseCount > 0 || advanceCount > 0 || siteLogCount > 0) {
+      return res.status(409).json({
+        error: 'This project has expenses, advances, or site logs recorded against it and cannot be deleted. Mark it as completed or on hold instead.',
+      });
+    }
+
+    // Safe to cascade-delete: no financial history exists
     await prisma.sitePhoto.deleteMany({ where: { projectId: req.params.id } });
-    await prisma.siteLog.deleteMany({ where: { projectId: req.params.id } });
     await prisma.projectTeamAssignment.deleteMany({ where: { projectId: req.params.id } });
     await prisma.projectMilestone.deleteMany({ where: { projectId: req.params.id } });
     await prisma.settlement.deleteMany({ where: { projectId: req.params.id } });
     await prisma.paymentLedgerEntry.deleteMany({ where: { projectId: req.params.id } });
-    await prisma.expense.deleteMany({ where: { projectId: req.params.id } });
-    await prisma.advance.deleteMany({ where: { projectId: req.params.id } });
-    
     await prisma.project.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
@@ -151,22 +158,6 @@ router.get('/:id/wallet', requireAuth, async (req, res) => {
   const totalSpent = Number(expenseTotal._sum.amount || 0);
 
   res.json({ totalAdvance, totalSpent, balance: totalAdvance - totalSpent });
-});
-
-// Refuses to delete a project that already has real financial history —
-// expenses/advances/payments must never silently disappear.
-router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
-  const [expenseCount, advanceCount] = await Promise.all([
-    prisma.expense.count({ where: { projectId: req.params.id } }),
-    prisma.advance.count({ where: { projectId: req.params.id } }),
-  ]);
-  if (expenseCount > 0 || advanceCount > 0) {
-    return res.status(409).json({ error: 'This project has expenses or advances recorded against it and cannot be deleted. Mark it as completed or on hold instead.' });
-  }
-  await prisma.projectTeamAssignment.deleteMany({ where: { projectId: req.params.id } });
-  await prisma.projectMilestone.deleteMany({ where: { projectId: req.params.id } });
-  await prisma.project.delete({ where: { id: req.params.id } });
-  res.status(204).end();
 });
 
 // --- Team assignment ---

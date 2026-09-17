@@ -1,9 +1,43 @@
 require('dotenv').config();
+const os = require('os');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const xss = require('xss');
+const morgan = require('morgan');
 const { rateLimit } = require('express-rate-limit');
+const logger = require('./utils/logger');
+const { swaggerUi, specs } = require('./swagger');
+
+// Custom middleware to sanitize incoming data
+const clean = (data) => {
+  if (typeof data === 'string') return xss(data);
+  if (typeof data === 'object' && data !== null) {
+    for (let key in data) {
+      data[key] = clean(data[key]);
+    }
+  }
+  return data;
+};
+const xssMiddleware = (req, res, next) => {
+  if (req.body) req.body = clean(req.body);
+  if (req.query) req.query = clean(req.query);
+  if (req.params) req.params = clean(req.params);
+  next();
+};
+
+// Express 5 natively forwards async route errors to the global error handler —
+// no express-async-errors package needed (that package only supports Express 4).
+function getLanIP() {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return 'localhost';
+}
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -42,6 +76,12 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));
+app.use(xssMiddleware);
+
+// HTTP request logging
+app.use(morgan('combined', {
+  stream: { write: (message) => logger.info(message.trim()) }
+}));
 
 // Backstop against abuse/scraping on top of the tighter per-route limiter on
 // login — generous enough that a dashboard's normal burst of parallel GET
@@ -66,6 +106,9 @@ app.use('/uploads', (req, res, next) => {
   next();
 }, express.static(path.join(__dirname, '..', 'uploads')));
 
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/organizations', organizationRoutes);
@@ -81,13 +124,37 @@ app.use('/site-logs', siteLogRoutes);
 // Centralized error handler — catches anything a route didn't handle itself
 // (bad multipart data, unexpected DB errors) instead of leaking a stack trace.
 app.use((err, req, res, next) => {
-  console.error(err);
+  // Handle Zod Validation Errors
+  if (err.name === 'ZodError') {
+    return res.status(400).json({
+      error: 'Validation Error',
+      details: err.errors.map(e => ({ path: e.path.join('.'), message: e.message }))
+    });
+  }
+
+  // Handle Prisma Database Conflicts (e.g. Unique Constraint Failed)
+  if (err.code === 'P2002') {
+    const target = err.meta?.target ? err.meta.target.join(', ') : 'field';
+    return res.status(409).json({
+      error: 'Data Conflict',
+      message: `A record with this ${target} already exists.`
+    });
+  }
+
+  // Handle Prisma Record Not Found
+  if (err.code === 'P2025') {
+    return res.status(404).json({ error: 'Record not found' });
+  }
+
+  // Fallback for everything else
+  logger.error('Unhandled Server Error: %O', err);
   res.status(500).json({ error: 'Something went wrong on the server' });
 });
 
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0'; // Listen on all network interfaces
 app.listen(PORT, HOST, () => {
-  console.log(`ASEMS backend listening on http://localhost:${PORT}`);
-  console.log(`ASEMS backend also accessible on http://192.168.1.4:${PORT}`);
+  const lanIP = getLanIP();
+  logger.info(`ASEMS backend listening on http://localhost:${PORT}`);
+  logger.info(`ASEMS backend also accessible on http://${lanIP}:${PORT}`);
 });

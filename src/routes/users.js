@@ -59,6 +59,8 @@ const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   mobile: z.string().min(10).optional(),
   email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
 });
 
 router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
@@ -77,9 +79,16 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
     return res.status(403).json({ error: 'Operations can only edit Site Supervisor accounts' });
   }
 
+  const { password, ...restData } = parsed.data;
+  let updateData = { ...restData };
+
+  if (password) {
+    updateData.passwordHash = await bcrypt.hash(password, 10);
+  }
+
   const updatedUser = await prisma.user.update({
     where: { id: req.params.id },
-    data: parsed.data,
+    data: updateData,
   });
 
   res.json({ user: toSafeUser(updatedUser) });
@@ -98,23 +107,32 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
   }
 
   try {
-    // Unassign them from any active projects instead of blocking delete
+    const [expenseCount, advanceCount, siteLogCount] = await Promise.all([
+      prisma.expense.count({ where: { submittedById: req.params.id } }),
+      prisma.advance.count({ where: { requestedById: req.params.id } }),
+      prisma.siteLog.count({ where: { supervisorId: req.params.id } }),
+    ]);
+
+    if (expenseCount > 0 || advanceCount > 0 || siteLogCount > 0) {
+      return res.status(409).json({ 
+        error: 'This user has expenses, advances, or site logs recorded against them and cannot be deleted. Please deactivate their account instead.' 
+      });
+    }
+
+    // Safe to cascade-delete: no financial or work history exists
     await prisma.project.updateMany({
       where: { supervisorId: user.id },
       data: { supervisorId: null }
     });
 
     await prisma.sitePhoto.deleteMany({ where: { supervisorId: req.params.id } });
-    await prisma.siteLog.deleteMany({ where: { supervisorId: req.params.id } });
     await prisma.settlement.deleteMany({ where: { supervisorId: req.params.id } });
-    await prisma.expense.deleteMany({ where: { submittedById: req.params.id } });
-    await prisma.advance.deleteMany({ where: { requestedById: req.params.id } });
 
     await prisma.user.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
     console.error('Error deleting user:', err);
-    res.status(500).json({ error: 'Could not delete supervisor. They might have other active dependencies.' });
+    res.status(500).json({ error: 'Could not delete user. They might have other active dependencies.' });
   }
 });
 
