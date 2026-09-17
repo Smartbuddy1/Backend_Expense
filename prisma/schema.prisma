@@ -291,6 +291,7 @@ model Expense {
   @@index([submittedById])
   @@index([status])
   @@index([createdAt])
+  @@index([projectId, status])
   @@map("expenses")
 }
 
@@ -315,10 +316,12 @@ model Advance {
   approvedById   String?       @map("approved_by") @db.Char(36)
   approvedBy     User?         @relation("AdvanceApprovedBy", fields: [approvedById], references: [id])
   approvedAt     DateTime?     @map("approved_at")
+  submittedVia   String        @default("app") @map("submitted_via")
   createdAt      DateTime      @default(now()) @map("created_at")
 
   @@index([projectId])
   @@index([requestedById])
+  @@index([projectId, status])
   @@map("advances")
 }
 

@@ -42,7 +42,11 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
   }
 
   const advance = await prisma.advance.create({
-    data: { ...parsed.data, requestedById },
+    data: { 
+      ...parsed.data, 
+      requestedById,
+      submittedVia: req.user.role === 'site_supervisor' ? 'app' : 'logged_by_ops',
+    },
   });
   res.status(201).json({ advance });
 });
@@ -77,20 +81,30 @@ router.post('/transfer', requireAuth, requireRole('admin', 'operations'), async 
 });
 
 router.get('/', requireAuth, async (req, res) => {
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const pageSize = Math.min(parseInt(req.query.pageSize) || 20, 100);
+
   const where = {
     ...(req.user.role === 'site_supervisor' ? { requestedById: req.user.id } : {}),
     ...(req.query.projectId ? { projectId: req.query.projectId } : {}),
     ...(req.query.status ? { status: req.query.status } : {}),
   };
-  const advances = await prisma.advance.findMany({
-    where,
-    include: {
-      project: { select: { id: true, name: true, code: true } },
-      requestedBy: { select: { id: true, name: true, mobile: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json({ advances });
+
+  const [advances, total] = await Promise.all([
+    prisma.advance.findMany({
+      where,
+      include: {
+        project: { select: { id: true, name: true, code: true } },
+        requestedBy: { select: { id: true, name: true, mobile: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.advance.count({ where }),
+  ]);
+
+  res.json({ advances, total, page, pageSize });
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
@@ -138,6 +152,11 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
   if (advance.status !== 'requested') {
     return res.status(409).json({ error: `Cannot approve an advance with status "${advance.status}"` });
   }
+
+  if (req.user.role === 'operations' && advance.submittedVia === 'logged_by_ops') {
+    return res.status(403).json({ error: 'Advances logged by Operations must be approved by an Admin.' });
+  }
+
   const updated = await prisma.advance.update({
     where: { id: req.params.id },
     data: { status: 'approved', approvedById: req.user.id, approvedAt: new Date() },

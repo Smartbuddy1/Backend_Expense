@@ -42,19 +42,29 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
 });
 
 router.get('/', requireAuth, async (req, res) => {
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const pageSize = Math.min(parseInt(req.query.pageSize) || 20, 100);
+
   const where = {
     ...(req.user.role === 'site_supervisor' ? { supervisorId: req.user.id } : {}),
     ...(req.query.projectId ? { projectId: req.query.projectId } : {}),
   };
-  const logs = await prisma.siteLog.findMany({
-    where,
-    include: {
-      project: { select: { id: true, name: true, code: true } },
-      supervisor: { select: { id: true, name: true } },
-    },
-    orderBy: { date: 'desc' },
-  });
-  res.json({ siteLogs: logs });
+
+  const [siteLogs, total] = await Promise.all([
+    prisma.siteLog.findMany({
+      where,
+      include: {
+        project: { select: { id: true, name: true, code: true } },
+        supervisor: { select: { id: true, name: true } },
+      },
+      orderBy: { date: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.siteLog.count({ where }),
+  ]);
+
+  res.json({ siteLogs, total, page, pageSize });
 });
 
 router.patch('/:id/verify', requireAuth, requireRole('admin', 'operations'), async (req, res) => {

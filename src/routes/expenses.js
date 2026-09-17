@@ -170,6 +170,10 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
     return res.status(409).json({ error: `Cannot approve an expense with status "${expense.status}"` });
   }
 
+  if (req.user.role === 'operations' && expense.submittedVia === 'logged_by_ops') {
+    return res.status(403).json({ error: 'Expenses logged by Operations must be approved by an Admin.' });
+  }
+
   const updated = await prisma.expense.update({
     where: { id: req.params.id },
     data: { status: 'ops_approved', opsApprovedById: req.user.id, opsApprovedAt: new Date() },
@@ -193,8 +197,9 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
     where: { id: req.params.id },
     data: {
       status: 'ops_rejected',
-      opsApprovedById: req.user.id,
-      opsApprovedAt: new Date(),
+      // Do NOT write to opsApprovedById/opsApprovedAt — those fields record
+      // who approved the expense. Overwriting them on rejection would corrupt
+      // the audit trail (you couldn't tell if the record was approved or rejected).
       opsRemarks: remarks || null,
     },
   });

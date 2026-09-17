@@ -48,7 +48,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 
   const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
-    expiresIn: '7d',
+    expiresIn: '30d',
   });
 
   res.json({ token, user: toSafeUser(user) });
