@@ -164,10 +164,10 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
   res.json({ advance: updated });
 });
 
-router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin'), async (req, res) => {
+router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'accountant'), async (req, res) => {
   const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
   if (!advance) return res.status(404).json({ error: 'Advance not found' });
-  if (advance.status !== 'requested') {
+  if (advance.status !== 'requested' && advance.status !== 'approved') {
     return res.status(409).json({ error: `Cannot reject an advance with status "${advance.status}"` });
   }
   const updated = await prisma.advance.update({
