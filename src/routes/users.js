@@ -5,6 +5,7 @@ const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { toSafeUser } = require('../utils/userHelpers');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -128,7 +129,7 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
     await prisma.user.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
-    console.error('Error deleting user:', err);
+    logger.error('Error deleting user: %O', err);
     res.status(500).json({ error: 'Could not delete user. They might have other active dependencies.' });
   }
 });

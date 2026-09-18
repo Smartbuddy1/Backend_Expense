@@ -3,6 +3,7 @@ const { z } = require('zod');
 
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -130,7 +131,7 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
     await prisma.project.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
-    console.error('Error deleting project:', err);
+    logger.error('Error deleting project: %O', err);
     res.status(500).json({ error: 'Could not delete project. Please check if it has other active dependencies.' });
   }
 });
