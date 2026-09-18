@@ -6,6 +6,7 @@ const { z } = require('zod');
 
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { toSafeUser } = require('../utils/userHelpers');
 
 const router = express.Router();
 
@@ -24,10 +25,6 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-function toSafeUser(user) {
-  const { passwordHash, ...safe } = user;
-  return safe;
-}
 
 // Matches the shape every module's AuthContext.jsx already calls: POST /auth/login {mobile, password}
 router.post('/login', loginLimiter, async (req, res) => {

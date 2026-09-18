@@ -4,6 +4,7 @@ const { z } = require('zod');
 
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { toSafeUser } = require('../utils/userHelpers');
 
 const router = express.Router();
 
@@ -15,10 +16,6 @@ const createUserSchema = z.object({
   email: z.string().email().optional(),
 });
 
-function toSafeUser(user) {
-  const { passwordHash, ...safe } = user;
-  return safe;
-}
 
 // Admin can create any role. Operations can only create site_supervisor accounts
 // (they manage field staff day to day, but shouldn't be able to create other
