@@ -172,7 +172,10 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
   }
   const updated = await prisma.advance.update({
     where: { id: req.params.id },
-    data: { status: 'rejected', approvedById: req.user.id, approvedAt: new Date() },
+    // Do NOT write to approvedById/approvedAt — those fields record who
+    // approved the advance. Overwriting them on rejection would corrupt the
+    // audit trail (you couldn't tell if the record was approved or rejected).
+    data: { status: 'rejected' },
   });
   res.json({ advance: updated });
 });
