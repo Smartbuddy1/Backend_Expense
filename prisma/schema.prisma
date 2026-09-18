@@ -338,3 +338,25 @@ model SitePhoto {
   @@index([projectId])
   @@map("site_photos")
 }
+
+model PublicFormSubmission {
+  id            String   @id @default(uuid()) @db.Char(36)
+  submitterName String   @map("submitter_name")
+  role          String?
+  category      String
+  site          String
+  amount        Decimal  @db.Decimal(12, 2)
+  paidTo        String   @map("paid_to")
+  paymentMode   String?  @map("payment_mode")
+  description   String?  @db.Text
+  status        String   @default("Pending") // Pending, Approved
+  receiptName   String?  @map("receipt_name")
+  receiptUrl    String?  @map("receipt_url")
+  receipt       Boolean  @default(false)
+  gpsLocation   String?  @map("gps_location")
+  gpsAddress    String?  @map("gps_address")
+  submittedVia  String   @default("Public Expense Form") @map("submitted_via")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("public_form_submissions")
+}

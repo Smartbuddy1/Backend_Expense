@@ -190,21 +190,25 @@ router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), a
   if (advance.status !== 'approved') {
     return res.status(409).json({ error: 'Only an Operations-approved advance can be disbursed' });
   }
-  const updated = await prisma.advance.update({
-    where: { id: req.params.id },
-    data: { status: 'disbursed' },
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const advanceUpdated = await tx.advance.update({
+      where: { id: req.params.id },
+      data: { status: 'disbursed' },
+    });
 
-  await recordPaymentEntry({
-    type: 'Site Advance Disbursal',
-    projectId: advance.projectId,
-    paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
-    amount: Number(advance.amount),
-    paymentMode: body.paymentMode || null,
-    refNumber: body.refNumber || null,
-    category: 'Site Advance',
-    notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
-    companyBankAccountId: body.companyBankAccountId || null,
+    await recordPaymentEntry({
+      type: 'Site Advance Disbursal',
+      projectId: advance.projectId,
+      paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
+      amount: Number(advance.amount),
+      paymentMode: body.paymentMode || null,
+      refNumber: body.refNumber || null,
+      category: 'Site Advance',
+      notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
+      companyBankAccountId: body.companyBankAccountId || null,
+    }, tx);
+
+    return advanceUpdated;
   });
 
   res.json({ advance: updated });

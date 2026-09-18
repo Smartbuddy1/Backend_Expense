@@ -19,8 +19,8 @@ const schema = z.object({
 });
 
 // Used both for manual entries and by other routes (fund release, settlements) recording a payment.
-async function recordPaymentEntry(data) {
-  return prisma.paymentLedgerEntry.create({ data });
+async function recordPaymentEntry(data, tx = prisma) {
+  return tx.paymentLedgerEntry.create({ data });
 }
 
 router.post('/', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {

@@ -217,20 +217,24 @@ router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async 
     return res.status(409).json({ error: 'Only an Operations-approved expense can be marked paid' });
   }
 
-  const updated = await prisma.expense.update({
-    where: { id: req.params.id },
-    data: { status: 'accounts_paid', paidById: req.user.id, paidAt: new Date(), paymentRef: paymentRef || null },
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const expenseUpdated = await tx.expense.update({
+      where: { id: req.params.id },
+      data: { status: 'accounts_paid', paidById: req.user.id, paidAt: new Date(), paymentRef: paymentRef || null },
+    });
 
-  await recordPaymentEntry({
-    type: 'Expense Reimbursement',
-    projectId: expense.projectId,
-    paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
-    amount: Number(expense.amount),
-    paymentMode: paymentMode || null,
-    refNumber: paymentRef || null,
-    category: 'Expense Reimbursement',
-    notes: `Verified claim ${expense.id} - ${expense.description}`,
+    await recordPaymentEntry({
+      type: 'Expense Reimbursement',
+      projectId: expense.projectId,
+      paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
+      amount: Number(expense.amount),
+      paymentMode: paymentMode || null,
+      refNumber: paymentRef || null,
+      category: 'Expense Reimbursement',
+      notes: `Verified claim ${expense.id} - ${expense.description}`,
+    }, tx);
+
+    return expenseUpdated;
   });
 
   res.json({ expense: updated });
