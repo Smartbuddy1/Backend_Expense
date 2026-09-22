@@ -10,12 +10,16 @@ const { rateLimit } = require('express-rate-limit');
 const logger = require('./utils/logger');
 const { swaggerUi, specs } = require('./swagger');
 
-// Custom middleware to sanitize incoming data
-const clean = (data) => {
-  if (typeof data === 'string') return xss(data);
+// Custom middleware to sanitize incoming data. `password` is deliberately
+// left untouched wherever it appears — it's an opaque secret hashed with
+// bcrypt, never rendered as HTML, and running it through xss() would make an
+// out-of-band-hashed password (e.g. via a seed/import script) silently stop
+// matching what login computes for the same raw string.
+const clean = (data, keyHint) => {
+  if (typeof data === 'string') return keyHint === 'password' ? data : xss(data);
   if (typeof data === 'object' && data !== null) {
     for (let key in data) {
-      data[key] = clean(data[key]);
+      data[key] = clean(data[key], key);
     }
   }
   return data;
@@ -126,6 +130,11 @@ app.use('/public-forms', publicFormRoutes);
 // Centralized error handler — catches anything a route didn't handle itself
 // (bad multipart data, unexpected DB errors) instead of leaking a stack trace.
 app.use((err, req, res, next) => {
+  // Handle rejected file uploads (multer's fileFilter, e.g. bad file type)
+  if (err.message && err.message.startsWith('Unsupported file type')) {
+    return res.status(400).json({ error: err.message });
+  }
+
   // Handle Zod Validation Errors
   if (err.name === 'ZodError') {
     return res.status(400).json({

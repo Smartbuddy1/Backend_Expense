@@ -105,15 +105,30 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
   }
 
   try {
-    const [expenseCount, advanceCount, siteLogCount] = await Promise.all([
+    const [
+      expenseCount,
+      advanceCount,
+      siteLogCount,
+      settlementCount,
+      approvedExpenseCount,
+      paidExpenseCount,
+      approvedAdvanceCount,
+    ] = await Promise.all([
       prisma.expense.count({ where: { submittedById: req.params.id } }),
       prisma.advance.count({ where: { requestedById: req.params.id } }),
       prisma.siteLog.count({ where: { supervisorId: req.params.id } }),
+      prisma.settlement.count({ where: { supervisorId: req.params.id } }),
+      prisma.expense.count({ where: { opsApprovedById: req.params.id } }),
+      prisma.expense.count({ where: { paidById: req.params.id } }),
+      prisma.advance.count({ where: { approvedById: req.params.id } }),
     ]);
 
-    if (expenseCount > 0 || advanceCount > 0 || siteLogCount > 0) {
-      return res.status(409).json({ 
-        error: 'This user has expenses, advances, or site logs recorded against them and cannot be deleted. Please deactivate their account instead.' 
+    if (
+      expenseCount > 0 || advanceCount > 0 || siteLogCount > 0 || settlementCount > 0 ||
+      approvedExpenseCount > 0 || paidExpenseCount > 0 || approvedAdvanceCount > 0
+    ) {
+      return res.status(409).json({
+        error: 'This user has expenses, advances, site logs, settlements, or approval/payment history recorded against them and cannot be deleted. Please deactivate their account instead.'
       });
     }
 

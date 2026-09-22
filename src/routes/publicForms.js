@@ -1,31 +1,38 @@
 const express = require('express');
+const multer = require('multer');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { uploadToS3 } = require('../utils/s3');
 
 const router = express.Router();
 
-// Schema for the public form submission (matches the shape sent by PublicExpenseForm.jsx)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
+
+// Schema for the public form submission
 const publicFormSchema = z.object({
-  id: z.string().optional(), // In case the frontend generated one, though we'll use our own UUID for DB PK
+  id: z.string().optional(),
   submitterName: z.string(),
   role: z.string().optional(),
   category: z.string(),
   site: z.string(),
-  amount: z.coerce.number().positive(),
+  amount: z.coerce.number().positive().finite(),
   paidTo: z.string(),
   paymentMode: z.string().optional(),
   description: z.string().optional(),
   receiptName: z.string().optional().nullable(),
   receiptUrl: z.string().optional().nullable(),
-  receipt: z.boolean().optional(),
+  receipt: z.preprocess(v => v === 'true' || v === true, z.boolean().optional()),
   gpsLocation: z.string().optional().nullable(),
   gpsAddress: z.string().optional().nullable(),
   submittedVia: z.string().optional()
 });
 
 // POST /api/public-forms - Submit a new public expense (NO AUTH REQUIRED)
-router.post('/', async (req, res) => {
+router.post('/', upload.single('receiptFile'), async (req, res) => {
   try {
     const parsed = publicFormSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -33,6 +40,12 @@ router.post('/', async (req, res) => {
     }
 
     const data = parsed.data;
+    let receiptUrl = data.receiptUrl || null;
+
+    if (req.file) {
+      const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+      receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'public-forms', baseUrl);
+    }
 
     const submission = await prisma.publicFormSubmission.create({
       data: {
@@ -45,8 +58,8 @@ router.post('/', async (req, res) => {
         paymentMode: data.paymentMode || null,
         description: data.description || null,
         receiptName: data.receiptName || null,
-        receiptUrl: data.receiptUrl || null,
-        receipt: data.receipt || false,
+        receiptUrl: receiptUrl,
+        receipt: data.receipt || (!!req.file),
         gpsLocation: data.gpsLocation || null,
         gpsAddress: data.gpsAddress || null,
         submittedVia: data.submittedVia || 'Public Expense Form',

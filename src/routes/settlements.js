@@ -63,21 +63,36 @@ router.patch('/:id/settle', requireAuth, requireRole('admin', 'accountant'), asy
   if (!settlement) return res.status(404).json({ error: 'Settlement not found' });
   if (settlement.status === 'settled') return res.status(409).json({ error: 'Already settled' });
 
-  const updated = await prisma.settlement.update({
-    where: { id: req.params.id },
-    data: { status: 'settled', completedDate: new Date(), accountsRemark: accountsRemark || null },
-  });
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.settlement.updateMany({
+        where: { id: req.params.id, status: { not: 'settled' } },
+        data: { status: 'settled', completedDate: new Date(), accountsRemark: accountsRemark || null },
+      });
+      if (result.count === 0) {
+        throw new Error('ALREADY_SETTLED');
+      }
 
-  await recordPaymentEntry({
-    type: settlement.settlementType === 'refund_due' ? 'Settlement Refund Received' : 'Settlement Payment',
-    projectId: settlement.projectId,
-    paidTo: settlement.settlementType === 'refund_due' ? 'Company Account' : settlement.supervisor.name,
-    amount: settlement.difference,
-    paymentMode: paymentMode || null,
-    refNumber: refNumber || null,
-    category: 'Project Settlement',
-    notes: accountsRemark || null,
-  });
+      await recordPaymentEntry({
+        type: settlement.settlementType === 'refund_due' ? 'Settlement Refund Received' : 'Settlement Payment',
+        projectId: settlement.projectId,
+        paidTo: settlement.settlementType === 'refund_due' ? 'Company Account' : settlement.supervisor.name,
+        amount: settlement.difference,
+        paymentMode: paymentMode || null,
+        refNumber: refNumber || null,
+        category: 'Project Settlement',
+        notes: accountsRemark || null,
+      }, tx);
+
+      return tx.settlement.findUnique({ where: { id: req.params.id } });
+    });
+  } catch (err) {
+    if (err.message === 'ALREADY_SETTLED') {
+      return res.status(409).json({ error: 'Already settled' });
+    }
+    throw err;
+  }
 
   res.json({ settlement: updated });
 });

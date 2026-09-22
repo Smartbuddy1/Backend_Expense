@@ -15,6 +15,7 @@ const createProjectSchema = z.object({
   organizationId: z.string().optional(),
   supervisorId: z.string().optional(), // Used to connect via join table
   budget: z.number().nonnegative().optional(),
+  status: z.enum(['planned', 'active', 'on_hold', 'completed']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   description: z.string().optional(),
@@ -111,14 +112,16 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
 
 router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   try {
-    const [expenseCount, advanceCount, siteLogCount] = await Promise.all([
+    const [expenseCount, advanceCount, siteLogCount, settlementCount, ledgerCount] = await Promise.all([
       prisma.expense.count({ where: { projectId: req.params.id } }),
       prisma.advance.count({ where: { projectId: req.params.id } }),
       prisma.siteLog.count({ where: { projectId: req.params.id } }),
+      prisma.settlement.count({ where: { projectId: req.params.id } }),
+      prisma.paymentLedgerEntry.count({ where: { projectId: req.params.id } }),
     ]);
-    if (expenseCount > 0 || advanceCount > 0 || siteLogCount > 0) {
+    if (expenseCount > 0 || advanceCount > 0 || siteLogCount > 0 || settlementCount > 0 || ledgerCount > 0) {
       return res.status(409).json({
-        error: 'This project has expenses, advances, or site logs recorded against it and cannot be deleted. Mark it as completed or on hold instead.',
+        error: 'This project has expenses, advances, site logs, settlements, or payment ledger entries recorded against it and cannot be deleted. Mark it as completed or on hold instead.',
       });
     }
 
@@ -215,23 +218,27 @@ router.patch('/:id/release-fund', requireAuth, requireRole('admin', 'accountant'
   const project = await prisma.project.findUnique({ where: { id: req.params.id } });
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const updated = await prisma.project.update({
-    where: { id: req.params.id },
-    data: { fundsReleased: { increment: amount } },
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const projectUpdated = await tx.project.update({
+      where: { id: req.params.id },
+      data: { fundsReleased: { increment: amount } },
+    });
 
-  await prisma.paymentLedgerEntry.create({
-    data: {
-      type: 'Project Fund Release',
-      projectId: project.id,
-      paidTo: `${project.name} Site Account`,
-      amount,
-      paymentMode: body.paymentMode || null,
-      refNumber: body.refNumber || null,
-      category: 'Project Fund Allocation',
-      notes: body.notes || null,
-      companyBankAccountId: body.companyBankAccountId || null,
-    },
+    await tx.paymentLedgerEntry.create({
+      data: {
+        type: 'Project Fund Release',
+        projectId: project.id,
+        paidTo: `${project.name} Site Account`,
+        amount,
+        paymentMode: body.paymentMode || null,
+        refNumber: body.refNumber || null,
+        category: 'Project Fund Allocation',
+        notes: body.notes || null,
+        companyBankAccountId: body.companyBankAccountId || null,
+      },
+    });
+
+    return projectUpdated;
   });
 
   res.json({ project: updated });

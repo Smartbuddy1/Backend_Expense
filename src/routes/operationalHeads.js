@@ -17,6 +17,7 @@ const schema = z.object({
   specialization: z.string().optional(),
   responsibilities: z.array(z.string()).optional(),
   totalBudgetAuthorisation: z.coerce.number().optional(),
+  userId: z.string().optional(),
 });
 
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {

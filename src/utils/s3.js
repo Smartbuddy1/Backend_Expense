@@ -17,12 +17,25 @@ function getClient() {
 
 const UPLOADS_ROOT = path.join(__dirname, '..', '..', 'uploads');
 
+// Extension is derived from the validated content-type, never from the
+// client-supplied filename — the filename is attacker-controlled, and using
+// it directly (e.g. "receipt.html") let a malicious upload get served back
+// with an executable content-type on the local-disk fallback path.
+const EXTENSION_BY_MIME = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'application/pdf': 'pdf',
+};
+function extensionFor(contentType) {
+  return EXTENSION_BY_MIME[contentType] || 'bin';
+}
+
 // Saves the file to the local disk under uploads/<folder>/, served back out by
 // the /uploads static route in index.js. Used automatically whenever S3 isn't
 // configured, so receipt uploads work in local dev without AWS — switches over
 // to S3 with zero code changes the moment AWS_REGION/S3_BUCKET_NAME are set.
-function uploadToLocalDisk(buffer, originalName, folder, baseUrl) {
-  const ext = (originalName.split('.').pop() || 'bin').toLowerCase();
+function uploadToLocalDisk(buffer, contentType, folder, baseUrl) {
+  const ext = extensionFor(contentType);
   const filename = `${crypto.randomUUID()}.${ext}`;
   const dir = path.join(UPLOADS_ROOT, folder);
   fs.mkdirSync(dir, { recursive: true });
@@ -37,10 +50,10 @@ function uploadToLocalDisk(buffer, originalName, folder, baseUrl) {
 // somewhere real instead of silently dropping it.
 async function uploadToS3(buffer, originalName, contentType, folder, baseUrl) {
   if (!isS3Configured()) {
-    return uploadToLocalDisk(buffer, originalName, folder, baseUrl);
+    return uploadToLocalDisk(buffer, contentType, folder, baseUrl);
   }
 
-  const ext = (originalName.split('.').pop() || 'bin').toLowerCase();
+  const ext = extensionFor(contentType);
   const key = `${folder}/${crypto.randomUUID()}.${ext}`;
 
   await getClient().send(new PutObjectCommand({

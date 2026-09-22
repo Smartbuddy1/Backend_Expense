@@ -14,7 +14,10 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
-    cb(null, allowed.includes(file.mimetype));
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Unsupported file type. Only JPG, PNG, and PDF receipts are allowed.'));
+    }
+    cb(null, true);
   },
 });
 
@@ -23,7 +26,7 @@ const createExpenseSchema = z.object({
   categoryId: z.string().optional(),
   description: z.string().min(1),
   vendorName: z.string().optional(),
-  amount: z.coerce.number().positive(),
+  amount: z.coerce.number().positive().finite(),
 });
 
 // The core money-moving action: a site supervisor submits an expense with a bill
@@ -110,7 +113,7 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({ expenses, total, page, pageSize });
 });
 
-router.put('/:id', requireAuth, upload.single('receipt'), async (req, res) => {
+router.put('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), upload.single('receipt'), async (req, res) => {
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   if (expense.status !== 'submitted') {
@@ -126,6 +129,13 @@ router.put('/:id', requireAuth, upload.single('receipt'), async (req, res) => {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
   const { projectId, categoryId, description, vendorName, amount } = parsed.data;
+
+  if (req.user.role === 'site_supervisor' && projectId !== expense.projectId) {
+    const newProject = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!newProject || newProject.supervisorId !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+    }
+  }
 
   let receiptUrl = expense.receiptUrl;
   if (req.file) {
@@ -147,7 +157,7 @@ router.put('/:id', requireAuth, upload.single('receipt'), async (req, res) => {
   res.json({ expense: updated });
 });
 
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   
@@ -170,14 +180,16 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
     return res.status(409).json({ error: `Cannot approve an expense with status "${expense.status}"` });
   }
 
-  if (req.user.role === 'operations' && expense.submittedVia === 'logged_by_ops') {
-    return res.status(403).json({ error: 'Expenses logged by Operations must be approved by an Admin.' });
-  }
+  // Removed the restriction that prevented Operations from approving expenses they logged.
 
-  const updated = await prisma.expense.update({
-    where: { id: req.params.id },
+  const result = await prisma.expense.updateMany({
+    where: { id: req.params.id, status: 'submitted' },
     data: { status: 'ops_approved', opsApprovedById: req.user.id, opsApprovedAt: new Date() },
   });
+  if (result.count === 0) {
+    return res.status(409).json({ error: 'This expense was already actioned by someone else' });
+  }
+  const updated = await prisma.expense.findUnique({ where: { id: req.params.id } });
   res.json({ expense: updated });
 });
 
@@ -193,8 +205,8 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
     return res.status(409).json({ error: `Cannot reject an expense with status "${expense.status}"` });
   }
 
-  const updated = await prisma.expense.update({
-    where: { id: req.params.id },
+  const result = await prisma.expense.updateMany({
+    where: { id: req.params.id, status: expense.status },
     data: {
       status: 'ops_rejected',
       // Do NOT write to opsApprovedById/opsApprovedAt — those fields record
@@ -203,6 +215,10 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
       opsRemarks: remarks || null,
     },
   });
+  if (result.count === 0) {
+    return res.status(409).json({ error: 'This expense was already actioned by someone else' });
+  }
+  const updated = await prisma.expense.findUnique({ where: { id: req.params.id } });
   res.json({ expense: updated });
 });
 
@@ -217,25 +233,36 @@ router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async 
     return res.status(409).json({ error: 'Only an Operations-approved expense can be marked paid' });
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const expenseUpdated = await tx.expense.update({
-      where: { id: req.params.id },
-      data: { status: 'accounts_paid', paidById: req.user.id, paidAt: new Date(), paymentRef: paymentRef || null },
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.expense.updateMany({
+        where: { id: req.params.id, status: 'ops_approved' },
+        data: { status: 'accounts_paid', paidById: req.user.id, paidAt: new Date(), paymentRef: paymentRef || null },
+      });
+      if (result.count === 0) {
+        throw new Error('ALREADY_PAID');
+      }
+
+      await recordPaymentEntry({
+        type: 'Expense Reimbursement',
+        projectId: expense.projectId,
+        paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
+        amount: Number(expense.amount),
+        paymentMode: paymentMode || null,
+        refNumber: paymentRef || null,
+        category: 'Expense Reimbursement',
+        notes: `Verified claim ${expense.id} - ${expense.description}`,
+      }, tx);
+
+      return tx.expense.findUnique({ where: { id: req.params.id } });
     });
-
-    await recordPaymentEntry({
-      type: 'Expense Reimbursement',
-      projectId: expense.projectId,
-      paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
-      amount: Number(expense.amount),
-      paymentMode: paymentMode || null,
-      refNumber: paymentRef || null,
-      category: 'Expense Reimbursement',
-      notes: `Verified claim ${expense.id} - ${expense.description}`,
-    }, tx);
-
-    return expenseUpdated;
-  });
+  } catch (err) {
+    if (err.message === 'ALREADY_PAID') {
+      return res.status(409).json({ error: 'This expense was already paid' });
+    }
+    throw err;
+  }
 
   res.json({ expense: updated });
 });

@@ -9,7 +9,7 @@ const router = express.Router();
 
 const requestSchema = z.object({
   projectId: z.string().min(1),
-  amount: z.coerce.number().positive(),
+  amount: z.coerce.number().positive().finite(),
   purpose: z.string().optional(),
   urgency: z.string().optional(),
 });
@@ -54,7 +54,7 @@ router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operation
 const transferSchema = z.object({
   projectId: z.string().min(1),
   supervisorId: z.string().min(1),
-  amount: z.coerce.number().positive(),
+  amount: z.coerce.number().positive().finite(),
   purpose: z.string().optional(),
 });
 
@@ -107,7 +107,7 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({ advances, total, page, pageSize });
 });
 
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
   const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
   if (!advance) return res.status(404).json({ error: 'Advance not found' });
   if (advance.status !== 'requested') {
@@ -123,6 +123,13 @@ router.put('/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
 
+  if (req.user.role === 'site_supervisor' && parsed.data.projectId !== advance.projectId) {
+    const newProject = await prisma.project.findUnique({ where: { id: parsed.data.projectId } });
+    if (!newProject || newProject.supervisorId !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+    }
+  }
+
   const updated = await prisma.advance.update({
     where: { id: req.params.id },
     data: parsed.data,
@@ -130,7 +137,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   res.json({ advance: updated });
 });
 
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
   const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
   if (!advance) return res.status(404).json({ error: 'Advance not found' });
   
@@ -153,14 +160,16 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
     return res.status(409).json({ error: `Cannot approve an advance with status "${advance.status}"` });
   }
 
-  if (req.user.role === 'operations' && advance.submittedVia === 'logged_by_ops') {
-    return res.status(403).json({ error: 'Advances logged by Operations must be approved by an Admin.' });
-  }
+  // Removed the restriction that prevented Operations from approving advances they logged.
 
-  const updated = await prisma.advance.update({
-    where: { id: req.params.id },
+  const result = await prisma.advance.updateMany({
+    where: { id: req.params.id, status: 'requested' },
     data: { status: 'approved', approvedById: req.user.id, approvedAt: new Date() },
   });
+  if (result.count === 0) {
+    return res.status(409).json({ error: 'This advance was already actioned by someone else' });
+  }
+  const updated = await prisma.advance.findUnique({ where: { id: req.params.id } });
   res.json({ advance: updated });
 });
 
@@ -170,13 +179,17 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
   if (advance.status !== 'requested' && advance.status !== 'approved') {
     return res.status(409).json({ error: `Cannot reject an advance with status "${advance.status}"` });
   }
-  const updated = await prisma.advance.update({
-    where: { id: req.params.id },
+  const result = await prisma.advance.updateMany({
+    where: { id: req.params.id, status: advance.status },
     // Do NOT write to approvedById/approvedAt — those fields record who
     // approved the advance. Overwriting them on rejection would corrupt the
     // audit trail (you couldn't tell if the record was approved or rejected).
     data: { status: 'rejected' },
   });
+  if (result.count === 0) {
+    return res.status(409).json({ error: 'This advance was already actioned by someone else' });
+  }
+  const updated = await prisma.advance.findUnique({ where: { id: req.params.id } });
   res.json({ advance: updated });
 });
 
@@ -190,26 +203,37 @@ router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), a
   if (advance.status !== 'approved') {
     return res.status(409).json({ error: 'Only an Operations-approved advance can be disbursed' });
   }
-  const updated = await prisma.$transaction(async (tx) => {
-    const advanceUpdated = await tx.advance.update({
-      where: { id: req.params.id },
-      data: { status: 'disbursed' },
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.advance.updateMany({
+        where: { id: req.params.id, status: 'approved' },
+        data: { status: 'disbursed' },
+      });
+      if (result.count === 0) {
+        throw new Error('ALREADY_DISBURSED');
+      }
+
+      await recordPaymentEntry({
+        type: 'Site Advance Disbursal',
+        projectId: advance.projectId,
+        paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
+        amount: Number(advance.amount),
+        paymentMode: body.paymentMode || null,
+        refNumber: body.refNumber || null,
+        category: 'Site Advance',
+        notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
+        companyBankAccountId: body.companyBankAccountId || null,
+      }, tx);
+
+      return tx.advance.findUnique({ where: { id: req.params.id } });
     });
-
-    await recordPaymentEntry({
-      type: 'Site Advance Disbursal',
-      projectId: advance.projectId,
-      paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
-      amount: Number(advance.amount),
-      paymentMode: body.paymentMode || null,
-      refNumber: body.refNumber || null,
-      category: 'Site Advance',
-      notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
-      companyBankAccountId: body.companyBankAccountId || null,
-    }, tx);
-
-    return advanceUpdated;
-  });
+  } catch (err) {
+    if (err.message === 'ALREADY_DISBURSED') {
+      return res.status(409).json({ error: 'This advance was already disbursed' });
+    }
+    throw err;
+  }
 
   res.json({ advance: updated });
 });
