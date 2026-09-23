@@ -13,7 +13,7 @@ const createProjectSchema = z.object({
   site: z.string().optional(),
   location: z.string().optional(),
   organizationId: z.string().optional(),
-  supervisorId: z.string().optional(), // Used to connect via join table
+  supervisorId: z.string().nullable().optional(), // Used to connect via join table
   budget: z.number().nonnegative().optional(),
   status: z.enum(['planned', 'active', 'on_hold', 'completed']).optional(),
   startDate: z.string().optional(),
