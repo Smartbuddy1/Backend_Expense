@@ -95,14 +95,17 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   const parsed = updateProjectSchema.safeParse(req.body);
   if (!parsed.success) {
+    console.error('Validation failed for PATCH /projects/:id. Body:', req.body);
+    console.error('Zod errors:', parsed.error.issues);
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
-  const { startDate, endDate, ...rest } = parsed.data;
+  const { startDate, endDate, supervisorId, ...rest } = parsed.data;
 
   const project = await prisma.project.update({
     where: { id: req.params.id },
     data: {
       ...rest,
+      ...(supervisorId === 'UNASSIGN' ? { supervisorId: null } : supervisorId !== undefined ? { supervisorId } : {}),
       ...(startDate ? { startDate: new Date(startDate) } : {}),
       ...(endDate ? { endDate: new Date(endDate) } : {}),
     },

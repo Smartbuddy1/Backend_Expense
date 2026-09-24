@@ -64,6 +64,8 @@ const updateUserSchema = z.object({
 router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) {
+    console.error('Validation failed for PATCH /users/:id. Body:', req.body);
+    console.error('Zod errors:', parsed.error.issues);
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
 
