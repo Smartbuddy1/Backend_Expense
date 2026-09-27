@@ -200,18 +200,20 @@ router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'acc
   const { remarks } = req.body || {};
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
-  const allowedFrom = req.user.role === 'accountant' ? ['ops_approved'] : ['submitted'];
+  const isAccountant = req.user.role === 'accountant';
+  const allowedFrom = isAccountant ? ['ops_approved'] : ['submitted'];
   if (!allowedFrom.includes(expense.status)) {
     return res.status(409).json({ error: `Cannot reject an expense with status "${expense.status}"` });
   }
 
+  // Accountant rejection → 'accounts_rejected' (keeps ops approval intact for audit trail)
+  // Operations rejection → 'ops_rejected'
+  const newStatus = isAccountant ? 'accounts_rejected' : 'ops_rejected';
+
   const result = await prisma.expense.updateMany({
     where: { id: req.params.id, status: expense.status },
     data: {
-      status: 'ops_rejected',
-      // Do NOT write to opsApprovedById/opsApprovedAt — those fields record
-      // who approved the expense. Overwriting them on rejection would corrupt
-      // the audit trail (you couldn't tell if the record was approved or rejected).
+      status: newStatus,
       opsRemarks: remarks || null,
     },
   });

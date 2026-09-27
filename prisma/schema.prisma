@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -259,6 +260,7 @@ enum ExpenseStatus {
   ops_approved
   ops_rejected
   accounts_paid
+  accounts_rejected
 }
 
 model Expense {
