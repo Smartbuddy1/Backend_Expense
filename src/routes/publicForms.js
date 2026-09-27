@@ -10,6 +10,13 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Unsupported file type. Only standard images and PDF receipts are allowed.'));
+    }
+    cb(null, true);
+  },
 });
 
 // Schema for the public form submission

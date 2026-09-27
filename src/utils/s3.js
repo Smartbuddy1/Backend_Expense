@@ -24,6 +24,10 @@ const UPLOADS_ROOT = path.join(__dirname, '..', '..', 'uploads');
 const EXTENSION_BY_MIME = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
   'application/pdf': 'pdf',
 };
 function extensionFor(contentType) {

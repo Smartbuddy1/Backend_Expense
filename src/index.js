@@ -108,6 +108,14 @@ app.get('/health', (req, res) => {
 // (a different origin) from loading these as <img> sources.
 app.use('/uploads', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  
+  // Backwards compatibility: If an image was saved as .bin by the fallback 
+  // extension mapper, browsers will refuse to display it in an <img> tag 
+  // because Express serves it as application/octet-stream. Force it to image/jpeg.
+  if (req.path.endsWith('.bin')) {
+    res.setHeader('Content-Type', 'image/jpeg');
+  }
+  
   next();
 }, express.static(path.join(__dirname, '..', 'uploads')));
 
