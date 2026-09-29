@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { z } = require('zod');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { uploadToS3 } = require('../utils/s3');
@@ -38,8 +39,15 @@ const publicFormSchema = z.object({
   submittedVia: z.string().optional()
 });
 
+const formSubmitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 20, // 20 submissions per IP per hour
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { error: 'Too many form submissions from this IP. Please try again later.' },
+});
+
 // POST /api/public-forms - Submit a new public expense (NO AUTH REQUIRED)
-router.post('/', upload.single('receiptFile'), async (req, res) => {
+router.post('/', formSubmitLimiter, upload.single('receiptFile'), async (req, res) => {
   try {
     const parsed = publicFormSchema.safeParse(req.body);
     if (!parsed.success) {
