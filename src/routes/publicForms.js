@@ -12,9 +12,19 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    const allowed = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/heic',
+      'image/heif',
+      'application/pdf',
+    ];
     if (!allowed.includes(file.mimetype)) {
-      return cb(new Error('Unsupported file type. Only standard images and PDF receipts are allowed.'));
+      return cb(
+        new Error('Unsupported file type. Only standard images and PDF receipts are allowed.')
+      );
     }
     cb(null, true);
   },
@@ -33,10 +43,10 @@ const publicFormSchema = z.object({
   description: z.string().optional(),
   receiptName: z.string().optional().nullable(),
   receiptUrl: z.string().optional().nullable(),
-  receipt: z.preprocess(v => v === 'true' || v === true, z.boolean().optional()),
+  receipt: z.preprocess((v) => v === 'true' || v === true, z.boolean().optional()),
   gpsLocation: z.string().optional().nullable(),
   gpsAddress: z.string().optional().nullable(),
-  submittedVia: z.string().optional()
+  submittedVia: z.string().optional(),
 });
 
 const formSubmitLimiter = rateLimit({
@@ -59,7 +69,13 @@ router.post('/', formSubmitLimiter, upload.single('receiptFile'), async (req, re
 
     if (req.file) {
       const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
-      receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'public-forms', baseUrl);
+      receiptUrl = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+        'public-forms',
+        baseUrl
+      );
     }
 
     const submission = await prisma.publicFormSubmission.create({
@@ -74,11 +90,11 @@ router.post('/', formSubmitLimiter, upload.single('receiptFile'), async (req, re
         description: data.description || null,
         receiptName: data.receiptName || null,
         receiptUrl: receiptUrl,
-        receipt: data.receipt || (!!req.file),
+        receipt: data.receipt || !!req.file,
         gpsLocation: data.gpsLocation || null,
         gpsAddress: data.gpsAddress || null,
         submittedVia: data.submittedVia || 'Public Expense Form',
-      }
+      },
     });
 
     res.status(201).json({ submission });
@@ -92,7 +108,7 @@ router.post('/', formSubmitLimiter, upload.single('receiptFile'), async (req, re
 router.get('/', requireAuth, requireRole('admin', 'accountant', 'operations'), async (req, res) => {
   try {
     const submissions = await prisma.publicFormSubmission.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
     res.json({ submissions });
   } catch (error) {
@@ -102,32 +118,42 @@ router.get('/', requireAuth, requireRole('admin', 'accountant', 'operations'), a
 });
 
 // PATCH /api/public-forms/:id/approve - Approve a submission
-router.patch('/:id/approve', requireAuth, requireRole('admin', 'accountant', 'operations'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const submission = await prisma.publicFormSubmission.update({
-      where: { id },
-      data: { status: 'Approved' }
-    });
-    res.json({ submission });
-  } catch (error) {
-    console.error('Error approving public form submission:', error);
-    res.status(500).json({ error: 'Internal server error' });
+router.patch(
+  '/:id/approve',
+  requireAuth,
+  requireRole('admin', 'accountant', 'operations'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const submission = await prisma.publicFormSubmission.update({
+        where: { id },
+        data: { status: 'Approved' },
+      });
+      res.json({ submission });
+    } catch (error) {
+      console.error('Error approving public form submission:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 // DELETE /api/public-forms/:id - Delete a submission
-router.delete('/:id', requireAuth, requireRole('admin', 'accountant', 'operations'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    await prisma.publicFormSubmission.delete({
-      where: { id }
-    });
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error deleting public form submission:', error);
-    res.status(500).json({ error: 'Internal server error' });
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole('admin', 'accountant', 'operations'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      await prisma.publicFormSubmission.delete({
+        where: { id },
+      });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting public form submission:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 module.exports = router;

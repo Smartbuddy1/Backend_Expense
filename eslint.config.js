@@ -2,7 +2,7 @@ const eslintPluginPrettier = require('eslint-plugin-prettier/recommended');
 
 module.exports = [
   {
-    ignores: ['node_modules/**', 'coverage/**']
+    ignores: ['node_modules/**', 'coverage/**'],
   },
   {
     languageOptions: {
@@ -13,13 +13,13 @@ module.exports = [
         __dirname: 'readonly',
         module: 'readonly',
         require: 'readonly',
-        console: 'readonly'
-      }
+        console: 'readonly',
+      },
     },
     rules: {
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      'no-console': 'warn'
-    }
+      'no-console': 'warn',
+    },
   },
-  eslintPluginPrettier
+  eslintPluginPrettier,
 ];

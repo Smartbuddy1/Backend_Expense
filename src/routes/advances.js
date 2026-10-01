@@ -18,38 +18,47 @@ const requestSchema = z.object({
 // requisition on a supervisor's behalf (e.g. a phoned-in urgent cash need) — same
 // as how expenses can be logged for a supervisor — recorded against that
 // project's assigned supervisor, still landing in "requested" pending approval.
-router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
-  const parsed = requestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
-  }
-  const { projectId } = parsed.data;
-
-  let requestedById = req.user.id;
-  if (req.user.role === 'site_supervisor') {
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (project.supervisorId !== req.user.id) {
-      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+router.post(
+  '/',
+  requireAuth,
+  requireRole('site_supervisor', 'admin', 'operations'),
+  async (req, res) => {
+    const parsed = requestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
     }
-  } else {
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (!project.supervisorId) {
-      return res.status(409).json({ error: 'This project has no supervisor assigned yet to log the requisition against' });
-    }
-    requestedById = project.supervisorId;
-  }
+    const { projectId } = parsed.data;
 
-  const advance = await prisma.advance.create({
-    data: { 
-      ...parsed.data, 
-      requestedById,
-      submittedVia: req.user.role === 'site_supervisor' ? 'app' : 'logged_by_ops',
-    },
-  });
-  res.status(201).json({ advance });
-});
+    let requestedById = req.user.id;
+    if (req.user.role === 'site_supervisor') {
+      const project = await prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (project.supervisorId !== req.user.id) {
+        return res
+          .status(403)
+          .json({ error: 'You are not the supervisor assigned to this project' });
+      }
+    } else {
+      const project = await prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (!project.supervisorId) {
+        return res.status(409).json({
+          error: 'This project has no supervisor assigned yet to log the requisition against',
+        });
+      }
+      requestedById = project.supervisorId;
+    }
+
+    const advance = await prisma.advance.create({
+      data: {
+        ...parsed.data,
+        requestedById,
+        submittedVia: req.user.role === 'site_supervisor' ? 'app' : 'logged_by_ops',
+      },
+    });
+    res.status(201).json({ advance });
+  }
+);
 
 const transferSchema = z.object({
   projectId: z.string().min(1),
@@ -107,57 +116,71 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({ advances, total, page, pageSize });
 });
 
-router.put('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
-  const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
-  if (!advance) return res.status(404).json({ error: 'Advance not found' });
-  if (advance.status !== 'requested') {
-    return res.status(403).json({ error: 'Cannot edit an advance that is already processed' });
-  }
-
-  if (req.user.role === 'site_supervisor' && advance.requestedById !== req.user.id) {
-    return res.status(403).json({ error: 'You can only edit your own requests' });
-  }
-
-  const parsed = requestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
-  }
-
-  if (req.user.role === 'site_supervisor' && parsed.data.projectId !== advance.projectId) {
-    const newProject = await prisma.project.findUnique({ where: { id: parsed.data.projectId } });
-    if (!newProject || newProject.supervisorId !== req.user.id) {
-      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+router.put(
+  '/:id',
+  requireAuth,
+  requireRole('site_supervisor', 'admin', 'operations'),
+  async (req, res) => {
+    const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
+    if (!advance) return res.status(404).json({ error: 'Advance not found' });
+    if (advance.status !== 'requested') {
+      return res.status(403).json({ error: 'Cannot edit an advance that is already processed' });
     }
+
+    if (req.user.role === 'site_supervisor' && advance.requestedById !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own requests' });
+    }
+
+    const parsed = requestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+    }
+
+    if (req.user.role === 'site_supervisor' && parsed.data.projectId !== advance.projectId) {
+      const newProject = await prisma.project.findUnique({ where: { id: parsed.data.projectId } });
+      if (!newProject || newProject.supervisorId !== req.user.id) {
+        return res
+          .status(403)
+          .json({ error: 'You are not the supervisor assigned to this project' });
+      }
+    }
+
+    const updated = await prisma.advance.update({
+      where: { id: req.params.id },
+      data: parsed.data,
+    });
+    res.json({ advance: updated });
   }
+);
 
-  const updated = await prisma.advance.update({
-    where: { id: req.params.id },
-    data: parsed.data,
-  });
-  res.json({ advance: updated });
-});
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole('site_supervisor', 'admin', 'operations'),
+  async (req, res) => {
+    const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
+    if (!advance) return res.status(404).json({ error: 'Advance not found' });
 
-router.delete('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
-  const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
-  if (!advance) return res.status(404).json({ error: 'Advance not found' });
-  
-  if (advance.status !== 'requested' && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Cannot delete an advance that is already processed' });
+    if (advance.status !== 'requested' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Cannot delete an advance that is already processed' });
+    }
+
+    if (req.user.role === 'site_supervisor' && advance.requestedById !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own requests' });
+    }
+
+    await prisma.advance.delete({ where: { id: req.params.id } });
+    res.json({ message: 'Advance deleted successfully' });
   }
-
-  if (req.user.role === 'site_supervisor' && advance.requestedById !== req.user.id) {
-    return res.status(403).json({ error: 'You can only delete your own requests' });
-  }
-
-  await prisma.advance.delete({ where: { id: req.params.id } });
-  res.json({ message: 'Advance deleted successfully' });
-});
+);
 
 router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), async (req, res) => {
   const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
   if (!advance) return res.status(404).json({ error: 'Advance not found' });
   if (advance.status !== 'requested') {
-    return res.status(409).json({ error: `Cannot approve an advance with status "${advance.status}"` });
+    return res
+      .status(409)
+      .json({ error: `Cannot approve an advance with status "${advance.status}"` });
   }
 
   // Removed the restriction that prevented Operations from approving advances they logged.
@@ -173,25 +196,32 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
   res.json({ advance: updated });
 });
 
-router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'accountant'), async (req, res) => {
-  const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
-  if (!advance) return res.status(404).json({ error: 'Advance not found' });
-  if (advance.status !== 'requested' && advance.status !== 'approved') {
-    return res.status(409).json({ error: `Cannot reject an advance with status "${advance.status}"` });
+router.patch(
+  '/:id/reject',
+  requireAuth,
+  requireRole('operations', 'admin', 'accountant'),
+  async (req, res) => {
+    const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
+    if (!advance) return res.status(404).json({ error: 'Advance not found' });
+    if (advance.status !== 'requested' && advance.status !== 'approved') {
+      return res
+        .status(409)
+        .json({ error: `Cannot reject an advance with status "${advance.status}"` });
+    }
+    const result = await prisma.advance.updateMany({
+      where: { id: req.params.id, status: advance.status },
+      // Do NOT write to approvedById/approvedAt — those fields record who
+      // approved the advance. Overwriting them on rejection would corrupt the
+      // audit trail (you couldn't tell if the record was approved or rejected).
+      data: { status: 'rejected' },
+    });
+    if (result.count === 0) {
+      return res.status(409).json({ error: 'This advance was already actioned by someone else' });
+    }
+    const updated = await prisma.advance.findUnique({ where: { id: req.params.id } });
+    res.json({ advance: updated });
   }
-  const result = await prisma.advance.updateMany({
-    where: { id: req.params.id, status: advance.status },
-    // Do NOT write to approvedById/approvedAt — those fields record who
-    // approved the advance. Overwriting them on rejection would corrupt the
-    // audit trail (you couldn't tell if the record was approved or rejected).
-    data: { status: 'rejected' },
-  });
-  if (result.count === 0) {
-    return res.status(409).json({ error: 'This advance was already actioned by someone else' });
-  }
-  const updated = await prisma.advance.findUnique({ where: { id: req.params.id } });
-  res.json({ advance: updated });
-});
+);
 
 router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), async (req, res) => {
   const body = req.body || {};
@@ -214,17 +244,20 @@ router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), a
         throw new Error('ALREADY_DISBURSED');
       }
 
-      await recordPaymentEntry({
-        type: 'Site Advance Disbursal',
-        projectId: advance.projectId,
-        paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
-        amount: Number(advance.amount),
-        paymentMode: body.paymentMode || null,
-        refNumber: body.refNumber || null,
-        category: 'Site Advance',
-        notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
-        companyBankAccountId: body.companyBankAccountId || null,
-      }, tx);
+      await recordPaymentEntry(
+        {
+          type: 'Site Advance Disbursal',
+          projectId: advance.projectId,
+          paidTo: body.paidTo || advance.requestedBy?.name || 'Site Supervisor',
+          amount: Number(advance.amount),
+          paymentMode: body.paymentMode || null,
+          refNumber: body.refNumber || null,
+          category: 'Site Advance',
+          notes: body.notes || `Advance disbursal for ${advance.project?.name || 'project'}`,
+          companyBankAccountId: body.companyBankAccountId || null,
+        },
+        tx
+      );
 
       return tx.advance.findUnique({ where: { id: req.params.id } });
     });

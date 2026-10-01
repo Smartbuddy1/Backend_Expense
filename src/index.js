@@ -61,42 +61,50 @@ app.set('trust proxy', 1);
 
 // Standard security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
 app.use(helmet());
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((o) => o.trim());
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. curl, Postman, server-to-server)
-    if (!origin) return callback(null, true);
-    // Always allow any localhost / 127.0.0.1 port (dev convenience)
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
-    // Allow any device on the local network (192.168.x.x) for development
-    if (/^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return callback(null, true);
-    // Allow the specific AWS EC2 instance IP
-    if (/^https?:\/\/3\.111\.236\.204(:\d+)?$/.test(origin)) return callback(null, true);
-    // Allow production domains directly to prevent .env misconfiguration issues
-    if (/^https?:\/\/(www\.)?aaryainnovtech\.com$/.test(origin)) return callback(null, true);
-    // Allow origins explicitly listed in FRONTEND_URL env var
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin ${origin} not allowed`));
-  },
-  credentials: true,
-}));
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. curl, Postman, server-to-server)
+      if (!origin) return callback(null, true);
+      // Always allow any localhost / 127.0.0.1 port (dev convenience)
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
+      // Allow any device on the local network (192.168.x.x) for development
+      if (/^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return callback(null, true);
+      // Allow the specific AWS EC2 instance IP
+      if (/^https?:\/\/3\.111\.236\.204(:\d+)?$/.test(origin)) return callback(null, true);
+      // Allow production domains directly to prevent .env misconfiguration issues
+      if (/^https?:\/\/(www\.)?aaryainnovtech\.com$/.test(origin)) return callback(null, true);
+      // Allow origins explicitly listed in FRONTEND_URL env var
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 app.use(xssMiddleware);
 
 // HTTP request logging
-app.use(morgan('combined', {
-  stream: { write: (message) => logger.info(message.trim()) }
-}));
+app.use(
+  morgan('combined', {
+    stream: { write: (message) => logger.info(message.trim()) },
+  })
+);
 
 // Backstop against abuse/scraping on top of the tighter per-route limiter on
 // login — generous enough that a dashboard's normal burst of parallel GET
 // calls on page load never trips it.
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 600,
-  standardHeaders: true,
-  legacyHeaders: false,
-}));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
 
 // Simple check to confirm the server is alive — visit http://localhost:5000/health in a browser
 app.get('/health', (req, res) => {
@@ -106,18 +114,22 @@ app.get('/health', (req, res) => {
 // Locally-stored receipt photos (the S3 fallback in utils/s3.js) — helmet's
 // default same-origin resource policy would otherwise block the frontend
 // (a different origin) from loading these as <img> sources.
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  
-  // Backwards compatibility: If an image was saved as .bin by the fallback 
-  // extension mapper, browsers will refuse to display it in an <img> tag 
-  // because Express serves it as application/octet-stream. Force it to image/jpeg.
-  if (req.path.endsWith('.bin')) {
-    res.setHeader('Content-Type', 'image/jpeg');
-  }
-  
-  next();
-}, express.static(path.join(__dirname, '..', 'uploads')));
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    // Backwards compatibility: If an image was saved as .bin by the fallback
+    // extension mapper, browsers will refuse to display it in an <img> tag
+    // because Express serves it as application/octet-stream. Force it to image/jpeg.
+    if (req.path.endsWith('.bin')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    }
+
+    next();
+  },
+  express.static(path.join(__dirname, '..', 'uploads'))
+);
 
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
@@ -147,7 +159,7 @@ app.use((err, req, res, next) => {
   if (err.name === 'ZodError') {
     return res.status(400).json({
       error: 'Validation Error',
-      details: err.errors.map(e => ({ path: e.path.join('.'), message: e.message }))
+      details: err.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
     });
   }
 
@@ -156,7 +168,7 @@ app.use((err, req, res, next) => {
     const target = err.meta?.target ? err.meta.target.join(', ') : 'field';
     return res.status(409).json({
       error: 'Data Conflict',
-      message: `A record with this ${target} already exists.`
+      message: `A record with this ${target} already exists.`,
     });
   }
 

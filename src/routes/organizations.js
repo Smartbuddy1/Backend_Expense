@@ -41,7 +41,9 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
 router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   const projectCount = await prisma.project.count({ where: { organizationId: req.params.id } });
   if (projectCount > 0) {
-    return res.status(409).json({ error: 'This organization has projects linked to it and cannot be deleted.' });
+    return res
+      .status(409)
+      .json({ error: 'This organization has projects linked to it and cannot be deleted.' });
   }
   await prisma.organization.delete({ where: { id: req.params.id } });
   res.status(204).end();

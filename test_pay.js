@@ -2,7 +2,7 @@
 const prisma = new PrismaClient();
 
 async function test() {
-  const exps = await prisma.expense.findMany({ where: { status: 'ops_approved' }});
+  const exps = await prisma.expense.findMany({ where: { status: 'ops_approved' } });
   console.log('Ops Approved Expenses:', exps.length);
   if (exps.length > 0) {
     const expense = exps[0];

@@ -17,7 +17,6 @@ const createUserSchema = z.object({
   email: z.string().email().optional(),
 });
 
-
 // Admin can create any role. Operations can only create site_supervisor accounts
 // (they manage field staff day to day, but shouldn't be able to create other
 // admin/operations/accountant logins).
@@ -83,6 +82,9 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
   let updateData = { ...restData };
 
   if (password) {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only administrators can update passwords' });
+    }
     updateData.passwordHash = await bcrypt.hash(password, 10);
   }
 
@@ -108,30 +110,30 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
 
   try {
     // Cascade-delete or nullify all related records to allow force deletion of user
-    
+
     // 1. Delete records where user is the required author/owner
     await prisma.expense.deleteMany({ where: { submittedById: req.params.id } });
     await prisma.advance.deleteMany({ where: { requestedById: req.params.id } });
     await prisma.siteLog.deleteMany({ where: { supervisorId: req.params.id } });
     await prisma.sitePhoto.deleteMany({ where: { supervisorId: req.params.id } });
     await prisma.settlement.deleteMany({ where: { supervisorId: req.params.id } });
-    
+
     // 2. Nullify references where user is an approver or assignee
     await prisma.expense.updateMany({
       where: { opsApprovedById: req.params.id },
-      data: { opsApprovedById: null }
+      data: { opsApprovedById: null },
     });
     await prisma.expense.updateMany({
       where: { paidById: req.params.id },
-      data: { paidById: null }
+      data: { paidById: null },
     });
     await prisma.advance.updateMany({
       where: { approvedById: req.params.id },
-      data: { approvedById: null }
+      data: { approvedById: null },
     });
     await prisma.project.updateMany({
       where: { supervisorId: req.params.id },
-      data: { supervisorId: null }
+      data: { supervisorId: null },
     });
 
     // 3. Delete OperationalHead linking to this user (if any)
@@ -141,7 +143,9 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
     res.status(204).end();
   } catch (err) {
     logger.error('Error deleting user: %O', err);
-    res.status(500).json({ error: 'Could not delete user. They might have other active dependencies.' });
+    res
+      .status(500)
+      .json({ error: 'Could not delete user. They might have other active dependencies.' });
   }
 });
 

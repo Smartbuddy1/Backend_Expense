@@ -15,14 +15,17 @@ const schema = z.object({
 
 router.post('/', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+  if (!parsed.success)
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   const member = await prisma.teamMember.create({ data: parsed.data });
   res.status(201).json({ teamMember: member });
 });
 
 router.get('/', requireAuth, async (req, res) => {
   const members = await prisma.teamMember.findMany({
-    include: { assignments: { include: { project: { select: { id: true, name: true, code: true } } } } },
+    include: {
+      assignments: { include: { project: { select: { id: true, name: true, code: true } } } },
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json({ teamMembers: members });
@@ -30,8 +33,12 @@ router.get('/', requireAuth, async (req, res) => {
 
 router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req, res) => {
   const parsed = schema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
-  const member = await prisma.teamMember.update({ where: { id: req.params.id }, data: parsed.data });
+  if (!parsed.success)
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+  const member = await prisma.teamMember.update({
+    where: { id: req.params.id },
+    data: parsed.data,
+  });
   res.json({ teamMember: member });
 });
 

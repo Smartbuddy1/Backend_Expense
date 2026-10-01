@@ -19,9 +19,10 @@ const logger = winston.createLogger({
       format: winston.format.combine(
         winston.format.colorize(),
         winston.format.printf(
-          (info) => `${info.timestamp} ${info.level}: ${info.message} ${info.stack ? '\n' + info.stack : ''}`
+          (info) =>
+            `${info.timestamp} ${info.level}: ${info.message} ${info.stack ? '\n' + info.stack : ''}`
         )
-      )
+      ),
     }),
     // In production, we could also log to files (e.g. error.log, combined.log)
     // new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),

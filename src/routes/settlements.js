@@ -20,25 +20,32 @@ const createSchema = z.object({
 // numbers can be pulled from GET /projects/:id/wallet first. This only proposes
 // the settlement; it stays "pending" until Accounts actually closes it via
 // PATCH /:id/settle, so it doesn't move any money on its own.
-router.post('/', requireAuth, requireRole('admin', 'accountant', 'operations'), async (req, res) => {
-  const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
-  const { projectId, supervisorId, totalAdvanceGiven, totalApprovedExpenses, supervisorRemark } = parsed.data;
-  const difference = totalAdvanceGiven - totalApprovedExpenses;
+router.post(
+  '/',
+  requireAuth,
+  requireRole('admin', 'accountant', 'operations'),
+  async (req, res) => {
+    const parsed = createSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+    const { projectId, supervisorId, totalAdvanceGiven, totalApprovedExpenses, supervisorRemark } =
+      parsed.data;
+    const difference = totalAdvanceGiven - totalApprovedExpenses;
 
-  const settlement = await prisma.settlement.create({
-    data: {
-      projectId,
-      supervisorId,
-      totalAdvanceGiven,
-      totalApprovedExpenses,
-      difference: Math.abs(difference),
-      settlementType: difference > 0 ? 'refund_due' : 'additional_payable',
-      supervisorRemark,
-    },
-  });
-  res.status(201).json({ settlement });
-});
+    const settlement = await prisma.settlement.create({
+      data: {
+        projectId,
+        supervisorId,
+        totalAdvanceGiven,
+        totalApprovedExpenses,
+        difference: Math.abs(difference),
+        settlementType: difference > 0 ? 'refund_due' : 'additional_payable',
+        supervisorRemark,
+      },
+    });
+    res.status(201).json({ settlement });
+  }
+);
 
 router.get('/', requireAuth, requireRole('admin', 'operations', 'accountant'), async (req, res) => {
   const where = req.query.status ? { status: req.query.status } : {};
@@ -68,22 +75,35 @@ router.patch('/:id/settle', requireAuth, requireRole('admin', 'accountant'), asy
     updated = await prisma.$transaction(async (tx) => {
       const result = await tx.settlement.updateMany({
         where: { id: req.params.id, status: { not: 'settled' } },
-        data: { status: 'settled', completedDate: new Date(), accountsRemark: accountsRemark || null },
+        data: {
+          status: 'settled',
+          completedDate: new Date(),
+          accountsRemark: accountsRemark || null,
+        },
       });
       if (result.count === 0) {
         throw new Error('ALREADY_SETTLED');
       }
 
-      await recordPaymentEntry({
-        type: settlement.settlementType === 'refund_due' ? 'Settlement Refund Received' : 'Settlement Payment',
-        projectId: settlement.projectId,
-        paidTo: settlement.settlementType === 'refund_due' ? 'Company Account' : settlement.supervisor.name,
-        amount: settlement.difference,
-        paymentMode: paymentMode || null,
-        refNumber: refNumber || null,
-        category: 'Project Settlement',
-        notes: accountsRemark || null,
-      }, tx);
+      await recordPaymentEntry(
+        {
+          type:
+            settlement.settlementType === 'refund_due'
+              ? 'Settlement Refund Received'
+              : 'Settlement Payment',
+          projectId: settlement.projectId,
+          paidTo:
+            settlement.settlementType === 'refund_due'
+              ? 'Company Account'
+              : settlement.supervisor.name,
+          amount: settlement.difference,
+          paymentMode: paymentMode || null,
+          refNumber: refNumber || null,
+          category: 'Project Settlement',
+          notes: accountsRemark || null,
+        },
+        tx
+      );
 
       return tx.settlement.findUnique({ where: { id: req.params.id } });
     });

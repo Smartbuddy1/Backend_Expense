@@ -25,7 +25,8 @@ async function recordPaymentEntry(data, tx = prisma) {
 
 router.post('/', requireAuth, requireRole('admin', 'accountant'), async (req, res) => {
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+  if (!parsed.success)
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   const entry = await recordPaymentEntry(parsed.data);
   res.status(201).json({ entry });
 });
@@ -34,16 +35,24 @@ router.get('/', requireAuth, requireRole('admin', 'operations', 'accountant'), a
   const where = req.query.projectId ? { projectId: req.query.projectId } : {};
   const entries = await prisma.paymentLedgerEntry.findMany({
     where,
-    include: { project: { select: { id: true, name: true, code: true } }, companyBankAccount: true },
+    include: {
+      project: { select: { id: true, name: true, code: true } },
+      companyBankAccount: true,
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json({ entries });
 });
 
-router.get('/bank-accounts', requireAuth, requireRole('admin', 'operations', 'accountant'), async (req, res) => {
-  const accounts = await prisma.companyBankAccount.findMany();
-  res.json({ accounts });
-});
+router.get(
+  '/bank-accounts',
+  requireAuth,
+  requireRole('admin', 'operations', 'accountant'),
+  async (req, res) => {
+    const accounts = await prisma.companyBankAccount.findMany();
+    res.json({ accounts });
+  }
+);
 
 module.exports = router;
 module.exports.recordPaymentEntry = recordPaymentEntry;

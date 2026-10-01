@@ -13,9 +13,19 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    const allowed = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/heic',
+      'image/heif',
+      'application/pdf',
+    ];
     if (!allowed.includes(file.mimetype)) {
-      return cb(new Error('Unsupported file type. Only standard images and PDF receipts are allowed.'));
+      return cb(
+        new Error('Unsupported file type. Only standard images and PDF receipts are allowed.')
+      );
     }
     cb(null, true);
   },
@@ -33,48 +43,64 @@ const createExpenseSchema = z.object({
 // photo. Admin/Operations can also log one on a supervisor's behalf (e.g. a
 // phoned-in field expense) — it's then recorded against that project's assigned
 // supervisor, not the admin/ops user themselves.
-router.post('/', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), upload.single('receipt'), async (req, res) => {
-  const parsed = createExpenseSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
-  }
-  const { projectId, categoryId, description, vendorName, amount } = parsed.data;
-
-  const project = await prisma.project.findUnique({ where: { id: projectId } });
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-
-  let submittedById = req.user.id;
-  if (req.user.role === 'site_supervisor') {
-    if (project.supervisorId !== req.user.id) {
-      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+router.post(
+  '/',
+  requireAuth,
+  requireRole('site_supervisor', 'admin', 'operations'),
+  upload.single('receipt'),
+  async (req, res) => {
+    const parsed = createExpenseSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
     }
-  } else {
-    if (!project.supervisorId) {
-      return res.status(409).json({ error: 'This project has no supervisor assigned yet to log the expense against' });
+    const { projectId, categoryId, description, vendorName, amount } = parsed.data;
+
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    let submittedById = req.user.id;
+    if (req.user.role === 'site_supervisor') {
+      if (project.supervisorId !== req.user.id) {
+        return res
+          .status(403)
+          .json({ error: 'You are not the supervisor assigned to this project' });
+      }
+    } else {
+      if (!project.supervisorId) {
+        return res.status(409).json({
+          error: 'This project has no supervisor assigned yet to log the expense against',
+        });
+      }
+      submittedById = project.supervisorId;
     }
-    submittedById = project.supervisorId;
-  }
 
-  let receiptUrl = null;
-  if (req.file) {
-    const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
-    receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'expenses', baseUrl);
-  }
+    let receiptUrl = null;
+    if (req.file) {
+      const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+      receiptUrl = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+        'expenses',
+        baseUrl
+      );
+    }
 
-  const expense = await prisma.expense.create({
-    data: {
-      projectId,
-      submittedById,
-      categoryId: categoryId || undefined,
-      description,
-      vendorName,
-      amount,
-      receiptUrl,
-      submittedVia: req.user.role === 'site_supervisor' ? 'app' : 'logged_by_ops',
-    },
-  });
-  res.status(201).json({ expense });
-});
+    const expense = await prisma.expense.create({
+      data: {
+        projectId,
+        submittedById,
+        categoryId: categoryId || undefined,
+        description,
+        vendorName,
+        amount,
+        receiptUrl,
+        submittedVia: req.user.role === 'site_supervisor' ? 'app' : 'logged_by_ops',
+      },
+    });
+    res.status(201).json({ expense });
+  }
+);
 
 // Fetch all expense categories
 router.get('/categories', requireAuth, async (req, res) => {
@@ -87,7 +113,7 @@ router.get('/categories', requireAuth, async (req, res) => {
 // Site supervisors see only their own; everyone else sees all, filterable.
 router.get('/', requireAuth, async (req, res) => {
   const page = Math.max(parseInt(req.query.page) || 1, 1);
-  const pageSize = Math.min(parseInt(req.query.pageSize) || 20, 100);
+  const pageSize = Math.min(parseInt(req.query.pageSize) || 20, 5000);
 
   const where = {
     ...(req.user.role === 'site_supervisor' ? { submittedById: req.user.id } : {}),
@@ -113,71 +139,92 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({ expenses, total, page, pageSize });
 });
 
-router.put('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), upload.single('receipt'), async (req, res) => {
-  const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  if (!expense) return res.status(404).json({ error: 'Expense not found' });
-  if (expense.status !== 'submitted') {
-    return res.status(403).json({ error: 'Cannot edit an expense that is already processed' });
-  }
-
-  if (req.user.role === 'site_supervisor' && expense.submittedById !== req.user.id) {
-    return res.status(403).json({ error: 'You can only edit your own expenses' });
-  }
-
-  const parsed = createExpenseSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
-  }
-  const { projectId, categoryId, description, vendorName, amount } = parsed.data;
-
-  if (req.user.role === 'site_supervisor' && projectId !== expense.projectId) {
-    const newProject = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!newProject || newProject.supervisorId !== req.user.id) {
-      return res.status(403).json({ error: 'You are not the supervisor assigned to this project' });
+router.put(
+  '/:id',
+  requireAuth,
+  requireRole('site_supervisor', 'admin', 'operations'),
+  upload.single('receipt'),
+  async (req, res) => {
+    const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    if (!expense) return res.status(404).json({ error: 'Expense not found' });
+    if (expense.status !== 'submitted') {
+      return res.status(403).json({ error: 'Cannot edit an expense that is already processed' });
     }
-  }
 
-  let receiptUrl = expense.receiptUrl;
-  if (req.file) {
-    const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
-    receiptUrl = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype, 'expenses', baseUrl);
-  }
-
-  const updated = await prisma.expense.update({
-    where: { id: req.params.id },
-    data: {
-      projectId,
-      categoryId: categoryId || undefined,
-      description,
-      vendorName,
-      amount,
-      receiptUrl,
+    if (req.user.role === 'site_supervisor' && expense.submittedById !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own expenses' });
     }
-  });
-  res.json({ expense: updated });
-});
 
-router.delete('/:id', requireAuth, requireRole('site_supervisor', 'admin', 'operations'), async (req, res) => {
-  const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  if (!expense) return res.status(404).json({ error: 'Expense not found' });
-  
-  if (expense.status !== 'submitted' && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Cannot delete an expense that is already processed' });
+    const parsed = createExpenseSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
+    }
+    const { projectId, categoryId, description, vendorName, amount } = parsed.data;
+
+    if (req.user.role === 'site_supervisor' && projectId !== expense.projectId) {
+      const newProject = await prisma.project.findUnique({ where: { id: projectId } });
+      if (!newProject || newProject.supervisorId !== req.user.id) {
+        return res
+          .status(403)
+          .json({ error: 'You are not the supervisor assigned to this project' });
+      }
+    }
+
+    let receiptUrl = expense.receiptUrl;
+    if (req.file) {
+      const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+      receiptUrl = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+        'expenses',
+        baseUrl
+      );
+    }
+
+    const updated = await prisma.expense.update({
+      where: { id: req.params.id },
+      data: {
+        projectId,
+        categoryId: categoryId || undefined,
+        description,
+        vendorName,
+        amount,
+        receiptUrl,
+      },
+    });
+    res.json({ expense: updated });
   }
+);
 
-  if (req.user.role === 'site_supervisor' && expense.submittedById !== req.user.id) {
-    return res.status(403).json({ error: 'You can only delete your own expenses' });
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole('site_supervisor', 'admin', 'operations'),
+  async (req, res) => {
+    const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    if (!expense) return res.status(404).json({ error: 'Expense not found' });
+
+    if (expense.status !== 'submitted' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Cannot delete an expense that is already processed' });
+    }
+
+    if (req.user.role === 'site_supervisor' && expense.submittedById !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own expenses' });
+    }
+
+    await prisma.expense.delete({ where: { id: req.params.id } });
+    res.json({ message: 'Expense deleted successfully' });
   }
-
-  await prisma.expense.delete({ where: { id: req.params.id } });
-  res.json({ message: 'Expense deleted successfully' });
-});
+);
 
 router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), async (req, res) => {
   const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   if (expense.status !== 'submitted') {
-    return res.status(409).json({ error: `Cannot approve an expense with status "${expense.status}"` });
+    return res
+      .status(409)
+      .json({ error: `Cannot approve an expense with status "${expense.status}"` });
   }
 
   // Removed the restriction that prevented Operations from approving expenses they logged.
@@ -196,33 +243,40 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
 // Operations rejects a freshly submitted claim; Accounts sends an already
 // ops-approved one back for correction (e.g. a GST/bill mismatch found at
 // verification) — both land in the same ops_rejected state.
-router.patch('/:id/reject', requireAuth, requireRole('operations', 'admin', 'accountant'), async (req, res) => {
-  const { remarks } = req.body || {};
-  const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  if (!expense) return res.status(404).json({ error: 'Expense not found' });
-  const isAccountant = req.user.role === 'accountant';
-  const allowedFrom = isAccountant ? ['ops_approved'] : ['submitted'];
-  if (!allowedFrom.includes(expense.status)) {
-    return res.status(409).json({ error: `Cannot reject an expense with status "${expense.status}"` });
-  }
+router.patch(
+  '/:id/reject',
+  requireAuth,
+  requireRole('operations', 'admin', 'accountant'),
+  async (req, res) => {
+    const { remarks } = req.body || {};
+    const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    if (!expense) return res.status(404).json({ error: 'Expense not found' });
+    const isAccountant = req.user.role === 'accountant';
+    const allowedFrom = isAccountant ? ['ops_approved'] : ['submitted'];
+    if (!allowedFrom.includes(expense.status)) {
+      return res
+        .status(409)
+        .json({ error: `Cannot reject an expense with status "${expense.status}"` });
+    }
 
-  // Accountant rejection → 'accounts_rejected' (keeps ops approval intact for audit trail)
-  // Operations rejection → 'ops_rejected'
-  const newStatus = isAccountant ? 'accounts_rejected' : 'ops_rejected';
+    // Accountant rejection → 'accounts_rejected' (keeps ops approval intact for audit trail)
+    // Operations rejection → 'ops_rejected'
+    const newStatus = isAccountant ? 'accounts_rejected' : 'ops_rejected';
 
-  const result = await prisma.expense.updateMany({
-    where: { id: req.params.id, status: expense.status },
-    data: {
-      status: newStatus,
-      opsRemarks: remarks || null,
-    },
-  });
-  if (result.count === 0) {
-    return res.status(409).json({ error: 'This expense was already actioned by someone else' });
+    const result = await prisma.expense.updateMany({
+      where: { id: req.params.id, status: expense.status },
+      data: {
+        status: newStatus,
+        opsRemarks: remarks || null,
+      },
+    });
+    if (result.count === 0) {
+      return res.status(409).json({ error: 'This expense was already actioned by someone else' });
+    }
+    const updated = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    res.json({ expense: updated });
   }
-  const updated = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  res.json({ expense: updated });
-});
+);
 
 router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async (req, res) => {
   const { paymentRef, paymentMode } = req.body || {};
@@ -232,7 +286,9 @@ router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async 
   });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
   if (expense.status !== 'ops_approved') {
-    return res.status(409).json({ error: 'Only an Operations-approved expense can be marked paid' });
+    return res
+      .status(409)
+      .json({ error: 'Only an Operations-approved expense can be marked paid' });
   }
 
   let updated;
@@ -240,22 +296,30 @@ router.patch('/:id/pay', requireAuth, requireRole('accountant', 'admin'), async 
     updated = await prisma.$transaction(async (tx) => {
       const result = await tx.expense.updateMany({
         where: { id: req.params.id, status: 'ops_approved' },
-        data: { status: 'accounts_paid', paidById: req.user.id, paidAt: new Date(), paymentRef: paymentRef || null },
+        data: {
+          status: 'accounts_paid',
+          paidById: req.user.id,
+          paidAt: new Date(),
+          paymentRef: paymentRef || null,
+        },
       });
       if (result.count === 0) {
         throw new Error('ALREADY_PAID');
       }
 
-      await recordPaymentEntry({
-        type: 'Expense Reimbursement',
-        projectId: expense.projectId,
-        paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
-        amount: Number(expense.amount),
-        paymentMode: paymentMode || null,
-        refNumber: paymentRef || null,
-        category: 'Expense Reimbursement',
-        notes: `Verified claim ${expense.id} - ${expense.description}`,
-      }, tx);
+      await recordPaymentEntry(
+        {
+          type: 'Expense Reimbursement',
+          projectId: expense.projectId,
+          paidTo: expense.vendorName || expense.submittedBy?.name || 'Site Vendor',
+          amount: Number(expense.amount),
+          paymentMode: paymentMode || null,
+          refNumber: paymentRef || null,
+          category: 'Expense Reimbursement',
+          notes: `Verified claim ${expense.id} - ${expense.description}`,
+        },
+        tx
+      );
 
       return tx.expense.findUnique({ where: { id: req.params.id } });
     });

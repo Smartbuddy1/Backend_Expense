@@ -60,12 +60,14 @@ async function uploadToS3(buffer, originalName, contentType, folder, baseUrl) {
   const ext = extensionFor(contentType);
   const key = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-  await getClient().send(new PutObjectCommand({
-    Bucket: process.env.S3_BUCKET_NAME,
-    Key: key,
-    Body: buffer,
-    ContentType: contentType,
-  }));
+  await getClient().send(
+    new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    })
+  );
 
   return `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
 }

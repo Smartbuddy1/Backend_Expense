@@ -78,7 +78,9 @@ async function main() {
   console.log('Seeded test users (all use password "test1234"):');
   TEST_USERS.forEach((u) => console.log(`  ${u.role.padEnd(16)} mobile: ${u.mobile}`));
   console.log(`Seeded ${EXPENSE_CATEGORIES.length} expense categories.`);
-  console.log(`Seeded sample project "${project.name}" (${project.code}), assigned to Test Supervisor.`);
+  console.log(
+    `Seeded sample project "${project.name}" (${project.code}), assigned to Test Supervisor.`
+  );
   console.log('Change or remove these before real use.');
 }
 

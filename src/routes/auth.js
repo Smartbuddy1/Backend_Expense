@@ -25,7 +25,6 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-
 // Matches the shape every module's AuthContext.jsx already calls: POST /auth/login {mobile, password}
 router.post('/login', loginLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
