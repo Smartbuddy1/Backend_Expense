@@ -34,7 +34,7 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  supervisedProjects Project[] @relation("ProjectSupervisor")
+  supervisedProjects Project[] @relation("ProjectSupervisors")
   submittedExpenses  Expense[] @relation("ExpenseSubmittedBy")
   approvedExpenses   Expense[] @relation("ExpenseApprovedBy")
   paidExpenses       Expense[] @relation("ExpensePaidBy")
@@ -119,8 +119,7 @@ model Project {
   toiletsCount   Int?          @map("toilets_count")
   organizationId String?       @map("organization_id") @db.Char(36)
   organization   Organization? @relation(fields: [organizationId], references: [id])
-  supervisorId   String?       @map("supervisor_id") @db.Char(36)
-  supervisor     User?         @relation("ProjectSupervisor", fields: [supervisorId], references: [id])
+  supervisors    User[]        @relation("ProjectSupervisors")
   budget         Decimal       @default(0) @db.Decimal(12, 2)
   fundsReleased  Decimal       @default(0) @map("funds_released") @db.Decimal(12, 2)
   status         ProjectStatus @default(planned)

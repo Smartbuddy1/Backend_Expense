@@ -13,7 +13,7 @@ const createProjectSchema = z.object({
   site: z.string().optional(),
   location: z.string().optional(),
   organizationId: z.string().optional(),
-  supervisorId: z.string().nullable().optional(), // Used to connect via join table
+  supervisorIds: z.array(z.string()).optional(), // Many-to-many supervisors
   budget: z.number().nonnegative().optional(),
   status: z.enum(['planned', 'active', 'on_hold', 'completed']).optional(),
   startDate: z.string().optional(),
@@ -33,7 +33,7 @@ router.post('/', requireAuth, requireRole('admin', 'operations'), async (req, re
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
-  const { startDate, endDate, ...rest } = parsed.data;
+  const { startDate, endDate, supervisorIds, ...rest } = parsed.data;
 
   const existing = await prisma.project.findUnique({ where: { code: rest.code } });
   if (existing) {
@@ -45,14 +45,20 @@ router.post('/', requireAuth, requireRole('admin', 'operations'), async (req, re
       ...rest,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
+      ...(supervisorIds && supervisorIds.length > 0
+        ? { supervisors: { connect: supervisorIds.map((id) => ({ id })) } }
+        : {}),
     },
+    include: { supervisors: { select: { id: true, name: true, mobile: true } } },
   });
   res.status(201).json({ project });
 });
 
 // A site supervisor only sees the projects assigned to them; everyone else sees all.
 router.get('/', requireAuth, async (req, res) => {
-  const where = req.user.role === 'site_supervisor' ? { supervisorId: req.user.id } : {};
+  const where = req.user.role === 'site_supervisor'
+    ? { supervisors: { some: { id: req.user.id } } }
+    : {};
   const page = Math.max(parseInt(req.query.page) || 1, 1);
   const pageSize = Math.min(parseInt(req.query.pageSize) || 20, 100);
 
@@ -61,7 +67,7 @@ router.get('/', requireAuth, async (req, res) => {
       where,
       include: {
         organization: true,
-        supervisor: { select: { id: true, name: true, mobile: true } },
+        supervisors: { select: { id: true, name: true, mobile: true } },
         teamAssignments: true,
         milestones: true,
       },
@@ -80,13 +86,13 @@ router.get('/:id', requireAuth, async (req, res) => {
     where: { id: req.params.id },
     include: {
       organization: true,
-      supervisor: { select: { id: true, name: true, mobile: true } },
+      supervisors: { select: { id: true, name: true, mobile: true } },
       teamAssignments: true,
       milestones: true,
     },
   });
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (req.user.role === 'site_supervisor' && project.supervisorId !== req.user.id) {
+  if (req.user.role === 'site_supervisor' && !project.supervisors.some(s => s.id === req.user.id)) {
     return res.status(403).json({ error: 'You do not have permission to view this project' });
   }
   res.json({ project });
@@ -99,20 +105,19 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
     console.error('Zod errors:', parsed.error.issues);
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
-  const { startDate, endDate, supervisorId, ...rest } = parsed.data;
+  const { startDate, endDate, supervisorIds, ...rest } = parsed.data;
 
   const project = await prisma.project.update({
     where: { id: req.params.id },
     data: {
       ...rest,
-      ...(supervisorId === 'UNASSIGN'
-        ? { supervisorId: null }
-        : supervisorId !== undefined
-          ? { supervisorId }
-          : {}),
+      ...(Array.isArray(supervisorIds)
+        ? { supervisors: { set: supervisorIds.map((id) => ({ id })) } }
+        : {}),
       ...(startDate ? { startDate: new Date(startDate) } : {}),
       ...(endDate ? { endDate: new Date(endDate) } : {}),
     },
+    include: { supervisors: { select: { id: true, name: true, mobile: true } } },
   });
   res.json({ project });
 });
@@ -140,9 +145,9 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
 
 // Wallet balance = disbursed advances minus approved/paid expenses, for this project's supervisor.
 router.get('/:id/wallet', requireAuth, async (req, res) => {
-  const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+  const project = await prisma.project.findUnique({ where: { id: req.params.id }, include: { supervisors: { select: { id: true } } } });
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (req.user.role === 'site_supervisor' && project.supervisorId !== req.user.id) {
+  if (req.user.role === 'site_supervisor' && !project.supervisors?.some(s => s.id === req.user.id)) {
     return res
       .status(403)
       .json({ error: "You do not have permission to view this project's wallet" });
