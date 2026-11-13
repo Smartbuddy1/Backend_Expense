@@ -14,6 +14,8 @@ const createProjectSchema = z.object({
   location: z.string().optional(),
   organizationId: z.string().optional(),
   supervisorIds: z.array(z.string()).optional(), // Many-to-many supervisors
+  supervisorId: z.string().nullable().optional(), // Single supervisor connect/unassign
+  removeSupervisorId: z.string().optional(), // Specific supervisor to disconnect
   budget: z.number().nonnegative().optional(),
   status: z.enum(['planned', 'active', 'on_hold', 'completed']).optional(),
   startDate: z.string().optional(),
@@ -33,20 +35,26 @@ router.post('/', requireAuth, requireRole('admin', 'operations'), async (req, re
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
-  const { startDate, endDate, supervisorIds, ...rest } = parsed.data;
+  const { startDate, endDate, supervisorIds, supervisorId, removeSupervisorId, ...rest } = parsed.data;
 
   const existing = await prisma.project.findUnique({ where: { code: rest.code } });
   if (existing) {
     return res.status(409).json({ error: 'A project with this code already exists' });
   }
 
+  const allSupervisorIds = [
+    ...(Array.isArray(supervisorIds) ? supervisorIds : []),
+    ...(supervisorId && supervisorId !== 'UNASSIGN' ? [supervisorId] : [])
+  ].filter(Boolean);
+  const uniqueSupervisorIds = [...new Set(allSupervisorIds)];
+
   const project = await prisma.project.create({
     data: {
       ...rest,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
-      ...(supervisorIds && supervisorIds.length > 0
-        ? { supervisors: { connect: supervisorIds.map((id) => ({ id })) } }
+      ...(uniqueSupervisorIds.length > 0
+        ? { supervisors: { connect: uniqueSupervisorIds.map((id) => ({ id })) } }
         : {}),
     },
     include: { supervisors: { select: { id: true, name: true, mobile: true } } },
@@ -105,15 +113,28 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
     console.error('Zod errors:', parsed.error.issues);
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
   }
-  const { startDate, endDate, supervisorIds, ...rest } = parsed.data;
+  const { startDate, endDate, supervisorIds, supervisorId, removeSupervisorId, ...rest } = parsed.data;
+
+  let supervisorOps = {};
+  if (Array.isArray(supervisorIds)) {
+    // Exact list of supervisors passed -> overwrite with this list
+    supervisorOps = { supervisors: { set: supervisorIds.map((id) => ({ id })) } };
+  } else if (removeSupervisorId) {
+    // Specifically disconnect this supervisor
+    supervisorOps = { supervisors: { disconnect: { id: removeSupervisorId } } };
+  } else if (supervisorId === 'UNASSIGN') {
+    // Disconnect all supervisors
+    supervisorOps = { supervisors: { set: [] } };
+  } else if (supervisorId) {
+    // Connect / add this supervisor
+    supervisorOps = { supervisors: { connect: { id: supervisorId } } };
+  }
 
   const project = await prisma.project.update({
     where: { id: req.params.id },
     data: {
       ...rest,
-      ...(Array.isArray(supervisorIds)
-        ? { supervisors: { set: supervisorIds.map((id) => ({ id })) } }
-        : {}),
+      ...supervisorOps,
       ...(startDate ? { startDate: new Date(startDate) } : {}),
       ...(endDate ? { endDate: new Date(endDate) } : {}),
     },
