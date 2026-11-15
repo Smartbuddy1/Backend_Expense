@@ -10,11 +10,14 @@ const logger = require('../utils/logger');
 const router = express.Router();
 
 const createUserSchema = z.object({
-  name: z.string().min(1),
-  mobile: z.string().min(10),
-  password: z.string().min(6),
+  name: z.string().trim().min(2, 'Name must be at least 2 characters long'),
+  mobile: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, 'Mobile number must be a valid 10-digit Indian number starting with 6, 7, 8, or 9'),
+  password: z.string().min(6, 'Password must be at least 6 characters long'),
   role: z.enum(['admin', 'operations', 'accountant', 'site_supervisor']),
-  email: z.string().email().optional(),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')),
 });
 
 // Admin can create any role. Operations can only create site_supervisor accounts
@@ -53,10 +56,14 @@ router.get('/', requireAuth, requireRole('admin', 'operations'), async (req, res
 
 // Update a user
 const updateUserSchema = z.object({
-  name: z.string().min(1).optional(),
-  mobile: z.string().min(10).optional(),
-  email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
+  name: z.string().trim().min(2, 'Name must be at least 2 characters long').optional(),
+  mobile: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, 'Mobile number must be a valid 10-digit Indian number starting with 6, 7, 8, or 9')
+    .optional(),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  password: z.string().min(6, 'Password must be at least 6 characters long').optional().or(z.literal('')),
   status: z.enum(['active', 'inactive']).optional(),
 });
 
@@ -81,11 +88,18 @@ router.patch('/:id', requireAuth, requireRole('admin', 'operations'), async (req
   const { password, ...restData } = parsed.data;
   let updateData = { ...restData };
 
-  if (password) {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only administrators can update passwords' });
+  if (restData.mobile && restData.mobile !== user.mobile) {
+    const existing = await prisma.user.findUnique({ where: { mobile: restData.mobile } });
+    if (existing) {
+      return res.status(409).json({ error: 'A user with this mobile number already exists' });
     }
-    updateData.passwordHash = await bcrypt.hash(password, 10);
+  }
+
+  if (password && password.trim().length >= 6) {
+    if (req.user.role !== 'admin' && !(req.user.role === 'operations' && user.role === 'site_supervisor')) {
+      return res.status(403).json({ error: 'You do not have permission to update passwords' });
+    }
+    updateData.passwordHash = await bcrypt.hash(password.trim(), 10);
   }
 
   const updatedUser = await prisma.user.update({
@@ -131,10 +145,15 @@ router.delete('/:id', requireAuth, requireRole('admin', 'operations'), async (re
       where: { approvedById: req.params.id },
       data: { approvedById: null },
     });
-    await prisma.project.updateMany({
-      where: { supervisorId: req.params.id },
-      data: { supervisorId: null },
+    const userProjects = await prisma.project.findMany({
+      where: { supervisors: { some: { id: req.params.id } } },
     });
+    for (const p of userProjects) {
+      await prisma.project.update({
+        where: { id: p.id },
+        data: { supervisors: { disconnect: { id: req.params.id } } },
+      });
+    }
 
     // 3. Delete OperationalHead linking to this user (if any)
     await prisma.operationalHead.deleteMany({ where: { userId: req.params.id } });

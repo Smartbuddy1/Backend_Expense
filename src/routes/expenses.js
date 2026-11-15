@@ -55,23 +55,29 @@ router.post(
     }
     const { projectId, categoryId, description, vendorName, amount } = parsed.data;
 
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { supervisors: true },
+    });
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     let submittedById = req.user.id;
     if (req.user.role === 'site_supervisor') {
-      if (project.supervisorId !== req.user.id) {
+      const isAssigned = (project.supervisors || []).some(s => s.id === req.user.id);
+      if (!isAssigned) {
         return res
           .status(403)
           .json({ error: 'You are not the supervisor assigned to this project' });
       }
     } else {
-      if (!project.supervisorId) {
+      if (!project.supervisors || project.supervisors.length === 0) {
         return res.status(409).json({
           error: 'This project has no supervisor assigned yet to log the expense against',
         });
       }
-      submittedById = project.supervisorId;
+      submittedById = (req.body.supervisorId && project.supervisors.some(s => s.id === req.body.supervisorId))
+        ? req.body.supervisorId
+        : project.supervisors[0].id;
     }
 
     let receiptUrl = null;
@@ -162,8 +168,11 @@ router.put(
     const { projectId, categoryId, description, vendorName, amount } = parsed.data;
 
     if (req.user.role === 'site_supervisor' && projectId !== expense.projectId) {
-      const newProject = await prisma.project.findUnique({ where: { id: projectId } });
-      if (!newProject || newProject.supervisorId !== req.user.id) {
+      const newProject = await prisma.project.findUnique({
+        where: { id: projectId },
+        include: { supervisors: true },
+      });
+      if (!newProject || !(newProject.supervisors || []).some(s => s.id === req.user.id)) {
         return res
           .status(403)
           .json({ error: 'You are not the supervisor assigned to this project' });

@@ -45,7 +45,43 @@ router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 });
 
 router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+  const head = await prisma.operationalHead.findUnique({ where: { id: req.params.id } });
+  if (!head) {
+    return res.status(404).json({ error: 'Operational Head not found' });
+  }
+
+  // Find linked user login
+  let targetUserId = head.userId;
+  if (!targetUserId && head.phone) {
+    const cleanPhone = head.phone.replace(/\D/g, '').slice(-10);
+    const matchedUser = await prisma.user.findFirst({
+      where: { mobile: cleanPhone, role: 'operations' },
+    });
+    if (matchedUser) {
+      targetUserId = matchedUser.id;
+    }
+  }
+
+  // Delete the OperationalHead record
   await prisma.operationalHead.delete({ where: { id: req.params.id } });
+
+  // Delete the linked User login account so they cannot log in
+  if (targetUserId) {
+    try {
+      await prisma.expense.updateMany({
+        where: { opsApprovedById: targetUserId },
+        data: { opsApprovedById: null },
+      });
+      await prisma.advance.updateMany({
+        where: { approvedById: targetUserId },
+        data: { approvedById: null },
+      });
+      await prisma.user.delete({ where: { id: targetUserId } });
+    } catch (e) {
+      console.error('Could not delete associated user for operational head:', e);
+    }
+  }
+
   res.status(204).end();
 });
 

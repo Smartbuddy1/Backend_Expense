@@ -21,15 +21,20 @@ const loginLimiter = rateLimit({
 });
 
 const loginSchema = z.object({
-  mobile: z.string().min(10),
-  password: z.string().min(1),
+  mobile: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9'),
+  password: z
+    .string()
+    .min(6, 'Password must be at least 6 characters long'),
 });
 
 // Matches the shape every module's AuthContext.jsx already calls: POST /auth/login {mobile, password}
 router.post('/login', loginLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'mobile and password are required' });
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid mobile number or password format' });
   }
   const { mobile, password } = parsed.data;
 

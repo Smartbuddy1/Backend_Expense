@@ -7,3 +7,4 @@ node_modules
 
 # Local-disk fallback for receipt uploads when S3 isn't configured (see utils/s3.js)
 uploads/
+reset_db.js

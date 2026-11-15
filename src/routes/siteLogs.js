@@ -27,21 +27,26 @@ router.post(
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' });
 
     let supervisorId = req.user.id;
-    const project = await prisma.project.findUnique({ where: { id: parsed.data.projectId } });
+    const project = await prisma.project.findUnique({
+      where: { id: parsed.data.projectId },
+      include: { supervisors: true },
+    });
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (req.user.role === 'site_supervisor') {
-      if (project.supervisorId !== req.user.id) {
+      if (!project.supervisors.some(s => s.id === req.user.id)) {
         return res
           .status(403)
           .json({ error: 'You are not the supervisor assigned to this project' });
       }
     } else {
-      if (!project.supervisorId) {
+      if (!project.supervisors || project.supervisors.length === 0) {
         return res
           .status(409)
           .json({ error: 'This project has no supervisor assigned yet to log against' });
       }
-      supervisorId = project.supervisorId;
+      supervisorId = (req.body.supervisorId && project.supervisors.some(s => s.id === req.body.supervisorId))
+        ? req.body.supervisorId
+        : project.supervisors[0].id;
     }
 
     const log = await prisma.siteLog.create({

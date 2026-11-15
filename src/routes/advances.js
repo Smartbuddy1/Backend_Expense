@@ -30,23 +30,29 @@ router.post(
     const { projectId } = parsed.data;
 
     let requestedById = req.user.id;
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { supervisors: true },
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
     if (req.user.role === 'site_supervisor') {
-      const project = await prisma.project.findUnique({ where: { id: projectId } });
-      if (!project) return res.status(404).json({ error: 'Project not found' });
-      if (project.supervisorId !== req.user.id) {
+      const isAssigned = (project.supervisors || []).some(s => s.id === req.user.id);
+      if (!isAssigned) {
         return res
           .status(403)
           .json({ error: 'You are not the supervisor assigned to this project' });
       }
     } else {
-      const project = await prisma.project.findUnique({ where: { id: projectId } });
-      if (!project) return res.status(404).json({ error: 'Project not found' });
-      if (!project.supervisorId) {
+      if (req.body.supervisorId) {
+        requestedById = req.body.supervisorId;
+      } else if (project.supervisors && project.supervisors.length > 0) {
+        requestedById = project.supervisors[0].id;
+      } else {
         return res.status(409).json({
           error: 'This project has no supervisor assigned yet to log the requisition against',
         });
       }
-      requestedById = project.supervisorId;
     }
 
     const advance = await prisma.advance.create({
@@ -137,8 +143,11 @@ router.put(
     }
 
     if (req.user.role === 'site_supervisor' && parsed.data.projectId !== advance.projectId) {
-      const newProject = await prisma.project.findUnique({ where: { id: parsed.data.projectId } });
-      if (!newProject || newProject.supervisorId !== req.user.id) {
+      const newProject = await prisma.project.findUnique({
+        where: { id: parsed.data.projectId },
+        include: { supervisors: true },
+      });
+      if (!newProject || !(newProject.supervisors || []).some(s => s.id === req.user.id)) {
         return res
           .status(403)
           .json({ error: 'You are not the supervisor assigned to this project' });
