@@ -260,17 +260,20 @@ router.patch(
     const { remarks } = req.body || {};
     const expense = await prisma.expense.findUnique({ where: { id: req.params.id } });
     if (!expense) return res.status(404).json({ error: 'Expense not found' });
-    const isAccountant = req.user.role === 'accountant';
-    const allowedFrom = isAccountant ? ['ops_approved'] : ['submitted'];
+    const role = req.user.role;
+    // Both admin, accountant, and operations can reject claims that are submitted or ops_approved
+    const allowedFrom = ['submitted', 'ops_approved'];
     if (!allowedFrom.includes(expense.status)) {
       return res
         .status(409)
         .json({ error: `Cannot reject an expense with status "${expense.status}"` });
     }
 
-    // Accountant rejection → 'accounts_rejected' (keeps ops approval intact for audit trail)
-    // Operations rejection → 'ops_rejected'
-    const newStatus = isAccountant ? 'accounts_rejected' : 'ops_rejected';
+    // If accountant rejects, or if the expense was already ops_approved, transition to 'accounts_rejected'
+    // Otherwise (operations rejecting a submitted claim) transition to 'ops_rejected'
+    const newStatus = (role === 'accountant' || expense.status === 'ops_approved')
+      ? 'accounts_rejected'
+      : 'ops_rejected';
 
     const result = await prisma.expense.updateMany({
       where: { id: req.params.id, status: expense.status },
