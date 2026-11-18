@@ -133,6 +133,8 @@ router.get('/', requireAuth, async (req, res) => {
       include: {
         project: { select: { id: true, name: true, code: true } },
         submittedBy: { select: { id: true, name: true, mobile: true } },
+        opsApprovedBy: { select: { id: true, name: true, mobile: true } },
+        paidBy: { select: { id: true, name: true, mobile: true } },
         category: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -142,7 +144,15 @@ router.get('/', requireAuth, async (req, res) => {
     prisma.expense.count({ where }),
   ]);
 
-  res.json({ expenses, total, page, pageSize });
+  const enrichedExpenses = expenses.map(exp => {
+    const subMatch = (exp.description || '').match(/^\[(.*?)\]/);
+    return {
+      ...exp,
+      subCategory: subMatch ? subMatch[1].trim() : null,
+    };
+  });
+
+  res.json({ expenses: enrichedExpenses, total, page, pageSize });
 });
 
 router.put(
