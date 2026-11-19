@@ -40,6 +40,8 @@ model User {
   paidExpenses       Expense[] @relation("ExpensePaidBy")
   requestedAdvances  Advance[] @relation("AdvanceRequestedBy")
   approvedAdvances   Advance[] @relation("AdvanceApprovedBy")
+  disbursedAdvances  Advance[] @relation("AdvanceDisbursedBy")
+  rejectedAdvances   Advance[] @relation("AdvanceRejectedBy")
   operationalHead    OperationalHead?
   siteLogs           SiteLog[]
   sitePhotos         SitePhoto[]
@@ -317,6 +319,13 @@ model Advance {
   approvedById   String?       @map("approved_by") @db.Char(36)
   approvedBy     User?         @relation("AdvanceApprovedBy", fields: [approvedById], references: [id])
   approvedAt     DateTime?     @map("approved_at")
+  disbursedById  String?       @map("disbursed_by") @db.Char(36)
+  disbursedBy    User?         @relation("AdvanceDisbursedBy", fields: [disbursedById], references: [id])
+  disbursedAt    DateTime?     @map("disbursed_at")
+  rejectedById   String?       @map("rejected_by") @db.Char(36)
+  rejectedBy     User?         @relation("AdvanceRejectedBy", fields: [rejectedById], references: [id])
+  rejectedAt     DateTime?     @map("rejected_at")
+  rejectionReason String?      @map("rejection_reason") @db.Text
   submittedVia   String        @default("app") @map("submitted_via")
   createdAt      DateTime      @default(now()) @map("created_at")
 

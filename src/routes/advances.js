@@ -111,6 +111,9 @@ router.get('/', requireAuth, async (req, res) => {
       include: {
         project: { select: { id: true, name: true, code: true } },
         requestedBy: { select: { id: true, name: true, mobile: true } },
+        approvedBy: { select: { id: true, name: true, mobile: true, role: true } },
+        disbursedBy: { select: { id: true, name: true, mobile: true, role: true } },
+        rejectedBy: { select: { id: true, name: true, mobile: true, role: true } },
       },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
@@ -201,7 +204,16 @@ router.patch('/:id/approve', requireAuth, requireRole('operations', 'admin'), as
   if (result.count === 0) {
     return res.status(409).json({ error: 'This advance was already actioned by someone else' });
   }
-  const updated = await prisma.advance.findUnique({ where: { id: req.params.id } });
+  const updated = await prisma.advance.findUnique({
+    where: { id: req.params.id },
+    include: {
+      project: { select: { id: true, name: true, code: true } },
+      requestedBy: { select: { id: true, name: true, mobile: true } },
+      approvedBy: { select: { id: true, name: true, mobile: true, role: true } },
+      disbursedBy: { select: { id: true, name: true, mobile: true, role: true } },
+      rejectedBy: { select: { id: true, name: true, mobile: true, role: true } },
+    },
+  });
   res.json({ advance: updated });
 });
 
@@ -210,6 +222,7 @@ router.patch(
   requireAuth,
   requireRole('operations', 'admin', 'accountant'),
   async (req, res) => {
+    const { remarks, reason } = req.body || {};
     const advance = await prisma.advance.findUnique({ where: { id: req.params.id } });
     if (!advance) return res.status(404).json({ error: 'Advance not found' });
     if (advance.status !== 'requested' && advance.status !== 'approved') {
@@ -219,15 +232,26 @@ router.patch(
     }
     const result = await prisma.advance.updateMany({
       where: { id: req.params.id, status: advance.status },
-      // Do NOT write to approvedById/approvedAt — those fields record who
-      // approved the advance. Overwriting them on rejection would corrupt the
-      // audit trail (you couldn't tell if the record was approved or rejected).
-      data: { status: 'rejected' },
+      data: {
+        status: 'rejected',
+        rejectedById: req.user.id,
+        rejectedAt: new Date(),
+        rejectionReason: remarks || reason || null,
+      },
     });
     if (result.count === 0) {
       return res.status(409).json({ error: 'This advance was already actioned by someone else' });
     }
-    const updated = await prisma.advance.findUnique({ where: { id: req.params.id } });
+    const updated = await prisma.advance.findUnique({
+      where: { id: req.params.id },
+      include: {
+        project: { select: { id: true, name: true, code: true } },
+        requestedBy: { select: { id: true, name: true, mobile: true } },
+        approvedBy: { select: { id: true, name: true, mobile: true, role: true } },
+        disbursedBy: { select: { id: true, name: true, mobile: true, role: true } },
+        rejectedBy: { select: { id: true, name: true, mobile: true, role: true } },
+      },
+    });
     res.json({ advance: updated });
   }
 );
@@ -247,7 +271,11 @@ router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), a
     updated = await prisma.$transaction(async (tx) => {
       const result = await tx.advance.updateMany({
         where: { id: req.params.id, status: 'approved' },
-        data: { status: 'disbursed' },
+        data: {
+          status: 'disbursed',
+          disbursedById: req.user.id,
+          disbursedAt: new Date(),
+        },
       });
       if (result.count === 0) {
         throw new Error('ALREADY_DISBURSED');
@@ -268,7 +296,16 @@ router.patch('/:id/disburse', requireAuth, requireRole('accountant', 'admin'), a
         tx
       );
 
-      return tx.advance.findUnique({ where: { id: req.params.id } });
+      return tx.advance.findUnique({
+        where: { id: req.params.id },
+        include: {
+          project: { select: { id: true, name: true, code: true } },
+          requestedBy: { select: { id: true, name: true, mobile: true } },
+          approvedBy: { select: { id: true, name: true, mobile: true, role: true } },
+          disbursedBy: { select: { id: true, name: true, mobile: true, role: true } },
+          rejectedBy: { select: { id: true, name: true, mobile: true, role: true } },
+        },
+      });
     });
   } catch (err) {
     if (err.message === 'ALREADY_DISBURSED') {

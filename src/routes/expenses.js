@@ -281,21 +281,40 @@ router.patch(
 
     // If accountant rejects, or if the expense was already ops_approved, transition to 'accounts_rejected'
     // Otherwise (operations rejecting a submitted claim) transition to 'ops_rejected'
-    const newStatus = (role === 'accountant' || expense.status === 'ops_approved')
+    const newStatus = (role === 'accountant' || (role === 'admin' && expense.status === 'ops_approved'))
       ? 'accounts_rejected'
       : 'ops_rejected';
 
+    const updateData = {
+      status: newStatus,
+      opsRemarks: remarks || null,
+    };
+
+    if (newStatus === 'ops_rejected') {
+      updateData.opsApprovedById = req.user.id;
+      updateData.opsApprovedAt = new Date();
+    } else {
+      updateData.paidById = req.user.id;
+      updateData.paidAt = new Date();
+    }
+
     const result = await prisma.expense.updateMany({
       where: { id: req.params.id, status: expense.status },
-      data: {
-        status: newStatus,
-        opsRemarks: remarks || null,
-      },
+      data: updateData,
     });
     if (result.count === 0) {
       return res.status(409).json({ error: 'This expense was already actioned by someone else' });
     }
-    const updated = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    const updated = await prisma.expense.findUnique({
+      where: { id: req.params.id },
+      include: {
+        project: { select: { id: true, name: true, code: true } },
+        submittedBy: { select: { id: true, name: true, mobile: true } },
+        opsApprovedBy: { select: { id: true, name: true, mobile: true } },
+        paidBy: { select: { id: true, name: true, mobile: true } },
+        category: true,
+      },
+    });
     res.json({ expense: updated });
   }
 );
